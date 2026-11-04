@@ -48,8 +48,8 @@ it("keeps real chat composers independent when switching pane focus", async () =
     [Symbol.asyncDispose]: () => page.viewport(viewport.width, viewport.height),
   };
   using environment = installFakeEnvironment([
-    threadWithHistory("pane-a", 1),
-    threadWithHistory("pane-b", 1),
+    { ...threadWithHistory("pane-a", 1), contextTokens: { usedTokens: 24600, maxTokens: 128000 } },
+    { ...threadWithHistory("pane-b", 1), contextTokens: { usedTokens: 64000, maxTokens: 256000 } },
   ]);
   const previous = useChatLayoutStore.getState().layout;
   using _restore = { [Symbol.dispose]: () => useChatLayoutStore.setState({ layout: previous }) };
@@ -78,6 +78,15 @@ it("keeps real chat composers independent when switching pane focus", async () =
   expect(document.querySelector('button[aria-label="Panel"]')).not.toBeNull();
   const a = page.getByRole("region", { name: "Chat pane Thread pane-a", exact: true });
   const b = page.getByRole("region", { name: "Chat pane Thread pane-b", exact: true });
+  await expect.element(a.getByText("Context 19% · 24.6k / 128k", { exact: true })).toBeVisible();
+  await expect.element(b.getByText("Context 25% · 64k / 256k", { exact: true })).toBeVisible();
+  await vi.waitFor(() =>
+    expect(
+      [...document.querySelectorAll("[data-sidebar-row]")].find((row) =>
+        row.textContent?.includes("Thread pane-a"),
+      )?.textContent,
+    ).toContain("Context 19% · 24.6k / 128k"),
+  );
   const panel = page.getByRole("button", { name: "Panel", exact: true });
   await expect.element(panel).toHaveAttribute("aria-pressed", "false");
   await userEvent.click(panel);
@@ -104,20 +113,19 @@ it("keeps real chat composers independent when switching pane focus", async () =
   expect(useChatLayoutStore.getState().layout.grid).toEqual(savedTree);
   await userEvent.click(b.getByTestId("composer-editor"));
   await userEvent.keyboard("{Enter}");
-  await vi
-    .waitFor(() =>
-      expect(
-        environment.requests.some(
-          (request) =>
-            JSON.stringify(request.input).includes("message.dispatch") &&
-            JSON.stringify(request.input).includes("pane-b"),
-        ),
-      ).toBe(true),
-    )
-    .catch((error) => {
-      console.log("SEND REQUESTS AT FAILURE", JSON.stringify(environment.requests));
-      throw error;
-    });
+  await vi.waitFor(() =>
+    expect(environment.requests).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          input: expect.objectContaining({
+            type: "message.dispatch",
+            threadId: "pane-b",
+            text: "message for B",
+          }),
+        }),
+      ]),
+    ),
+  );
   expect(
     environment.requests.filter(
       (request) =>

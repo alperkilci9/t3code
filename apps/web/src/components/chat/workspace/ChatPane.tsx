@@ -1,4 +1,7 @@
 import { useStableCallback } from "../../../hooks/useStableCallback";
+import { ThreadContextUsage } from "../ThreadContextUsage";
+import { useThreadCompletionStore } from "../../../threadCompletionStore";
+import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 import { XIcon } from "lucide-react";
 import type { ChatPane as Pane, PaneId } from "../../../chatLayout";
 import { targetKey } from "../../../chatLayout";
@@ -60,14 +63,25 @@ export function ChatPane({
       data-workspace-area={`pane:${pane.id}`}
       data-workspace-order={1}
       tabIndex={-1}
-      onPointerDownCapture={() => onFocus(pane.id)}
-      onFocusCapture={() => onFocus(pane.id)}
+      onPointerDownCapture={() => {
+        if (pane.target.kind === "server")
+          useThreadCompletionStore.getState().acknowledge(scopedThreadKey(pane.target.threadRef));
+        onFocus(pane.id);
+      }}
+      onFocusCapture={() => {
+        if (pane.target.kind === "server")
+          useThreadCompletionStore.getState().acknowledge(scopedThreadKey(pane.target.threadRef));
+        onFocus(pane.id);
+      }}
       className="relative flex h-full min-h-0 min-w-0 flex-col overflow-hidden rounded-md border-2 border-border data-[chat-pane-focused=true]:border-info/70"
     >
       <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border px-2 text-xs">
         <span tabIndex={-1} data-workspace-focus-default className="min-w-0 flex-1 truncate">
           {title}
         </span>
+        <ThreadContextUsage
+          threadRef={pane.target.kind === "server" ? pane.target.threadRef : null}
+        />
         <span className="shrink-0 text-muted-foreground">{label}</span>
         <Button
           variant="ghost"

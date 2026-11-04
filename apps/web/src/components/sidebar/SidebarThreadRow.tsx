@@ -1,3 +1,5 @@
+import { ThreadContextUsage } from "../chat/ThreadContextUsage";
+import { useThreadCompletionStore } from "../../threadCompletionStore";
 import { ThreadHoverCard, ThreadHoverCardPopup } from "../ThreadHoverCard";
 import { ThreadTerminalStatusButton } from "../ThreadStatusIndicators";
 import { discardComposerDraft } from "../../lib/discardComposerDraft";
@@ -706,7 +708,10 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     ? resolveThreadCurrentPullRequestLink(thread.pullRequests)
     : null;
 
-  const isUnread = hasUnseenCompletion({ ...thread, lastVisitedAt });
+  const completionNotice = useThreadCompletionStore(
+    (state) => state.pending[threadKey] !== undefined,
+  );
+  const isUnread = completionNotice || hasUnseenCompletion({ ...thread, lastVisitedAt });
   const status = resolveSidebarThreadStatus(thread);
   const lastVisitedDate = lastVisitedAt === undefined ? null : parseTimestampDate(lastVisitedAt);
   const wokeAtDate = props.wokeAt === null ? null : parseTimestampDate(props.wokeAt);
@@ -821,6 +826,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
   );
 
   const handleClick = (event: ReactMouseEvent) => {
+    useThreadCompletionStore.getState().acknowledge(threadKey);
     onThreadClick(event, threadRef);
   };
   const handleAcknowledgeWokeClick = (event: ReactMouseEvent) => {
@@ -846,6 +852,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     }
     if (event.key !== "Enter" && event.key !== " ") return;
     event.preventDefault();
+    useThreadCompletionStore.getState().acknowledge(threadKey);
     onThreadActivate(threadRef);
   };
   const handleDoubleClick = (event: ReactMouseEvent) => {
@@ -1220,7 +1227,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                   rowSurfaceClassName,
                   multiline
                     ? "flex flex-col justify-center px-2.5 py-1.5"
-                    : "flex h-9 items-center gap-2.5 px-2.5",
+                    : "flex min-h-12 flex-col justify-center px-2.5 py-1",
                   // Lines titles up with the folder name, past its chevron and icon.
                   inFolder && "ps-9",
                 )}
@@ -1232,7 +1239,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
             }
           >
             {/* `contents` keeps one-line rows a single flex row. */}
-            <div className={multiline ? "flex h-6 min-w-0 items-center gap-2.5" : "contents"}>
+            <div className={"flex h-6 min-w-0 w-full items-center gap-2.5"}>
               {accessibleTitle}
               {inFolder ? null : (
                 <span
@@ -1381,6 +1388,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
               {props.sweepAction !== null ? dragDestination : null}
             </div>
             {multiline ? metaLine : null}
+            <ThreadContextUsage threadRef={threadRef} />
           </TooltipTrigger>
           {detailsTooltip}
         </Tooltip>
@@ -1423,7 +1431,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
           {accessibleTitle}
           <div
             className={cn(
-              "relative z-10 h-[4.875rem] px-(--sidebar-row-content-inset) py-(--sidebar-content-inset)",
+              "relative z-10 min-h-[4.875rem] px-(--sidebar-row-content-inset) py-(--sidebar-content-inset)",
               metaLineEmpty && "h-auto",
             )}
           >
@@ -1582,6 +1590,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
               {titleLineIcons}
             </div>
             {metaLine}
+            <ThreadContextUsage threadRef={threadRef} />
           </div>
         </TooltipTrigger>
         {detailsTooltip}

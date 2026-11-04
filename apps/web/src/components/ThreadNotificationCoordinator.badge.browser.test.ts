@@ -75,6 +75,7 @@ vi.mock(import("../threadNotifications"), async (original) => ({
   setNotificationBadge: state.badge,
 }));
 
+import { useThreadCompletionStore } from "../threadCompletionStore";
 import { startThreadNotifications } from "./ThreadNotificationCoordinator";
 
 let registry: AtomRegistry.AtomRegistry;
@@ -209,6 +210,9 @@ function setup() {
     navigate: state.navigate,
   } as unknown as AnyRouter;
   return {
+    setOpenThread: (environmentId: string, threadId: string) => {
+      router.state.matches[0]!.params = { environmentId, threadId };
+    },
     start: () => {
       stack.defer(startThreadNotifications(testRegistry, router));
     },
@@ -316,3 +320,23 @@ it.each([false, true])(
     expect(TestNotification.sent.map(({ title }) => title)).toEqual(["Thread completed"]);
   },
 );
+
+it("visually notifies completion of the focused chat and retains a sidebar notice until acknowledged", async () => {
+  await using app = setup();
+  state.inApp = true;
+  focused = true;
+  app.setOpenThread("one", "thread");
+  app.start();
+  state.shells.set(
+    "one",
+    shell({
+      latestTurn: { turnId: "turn", state: "completed", completedAt: "2026-09-13T07:00:01.000Z" },
+    }),
+  );
+  expect(state.toast).toHaveBeenCalledWith(
+    expect.objectContaining({ title: "Thread completed", description: "Test thread" }),
+  );
+  expect(useThreadCompletionStore.getState().pending["one:thread"]).toBeDefined();
+  useThreadCompletionStore.getState().acknowledge("one:thread");
+  expect(useThreadCompletionStore.getState().pending["one:thread"]).toBeUndefined();
+});

@@ -11,6 +11,9 @@ import {
   ORCHESTRATION_V2_WS_METHODS,
   ProjectId,
   ProviderInstanceId,
+  ProviderThreadId,
+  OrchestrationV2ProviderThread,
+  type ThreadTokenUsageSnapshot,
   RunId,
   ServerConfig,
   ThreadId,
@@ -49,6 +52,7 @@ export const ENVIRONMENT_ID = EnvironmentId.make("environment-render");
 export const PROJECT_ID = ProjectId.make("project-render");
 const CODEX = ProviderInstanceId.make("codex");
 const MODEL = { instanceId: CODEX, model: "gpt-5.4" };
+const decodeProviderThread = Schema.decodeSync(OrchestrationV2ProviderThread);
 const AT = DateTime.makeUnsafe("2026-03-17T19:12:28.000Z");
 
 const descriptor = {
@@ -183,6 +187,7 @@ function run(threadId: ThreadId, id: RunId, ordinal: number, userMessageId: stri
 }
 
 export interface FakeThread {
+  readonly contextTokens?: ThreadTokenUsageSnapshot;
   /** Makes this a side chat of that thread. */
   readonly sideChatOf?: ThreadId;
   readonly id: ThreadId;
@@ -278,7 +283,9 @@ function projectionOf(thread: FakeThread): OrchestrationV2ThreadProjection {
       interactionMode: shell.interactionMode,
       branch: shell.branch,
       worktreePath: shell.worktreePath,
-      activeProviderThreadId: null,
+      activeProviderThreadId: thread.contextTokens
+        ? ProviderThreadId.make(`${thread.id}-provider`)
+        : null,
       lineage: shell.lineage,
       forkedFrom: null,
       createdBy: "user",
@@ -296,7 +303,28 @@ function projectionOf(thread: FakeThread): OrchestrationV2ThreadProjection {
     nodes: [],
     subagents: [],
     providerSessions: [],
-    providerThreads: [],
+    providerThreads: thread.contextTokens
+      ? [
+          decodeProviderThread({
+            id: ProviderThreadId.make(`${thread.id}-provider`),
+            driver: "codex",
+            providerInstanceId: CODEX,
+            providerSessionId: null,
+            appThreadId: thread.id,
+            ownerNodeId: null,
+            nativeThreadRef: null,
+            nativeConversationHeadRef: null,
+            status: "idle",
+            firstRunOrdinal: 1,
+            lastRunOrdinal: 1,
+            handoffIds: [],
+            forkedFrom: null,
+            contextUsage: thread.contextTokens,
+            createdAt: AT,
+            updatedAt: AT,
+          }),
+        ]
+      : [],
     providerTurns: [],
     runtimeRequests: [],
     messages: [],

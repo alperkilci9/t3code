@@ -1,5 +1,6 @@
 import { ChatPaneContext, isChatPaneEventOwner } from "./chat/workspace/ChatPaneContext";
 import { useChatLayoutStore } from "../chatLayoutStore";
+import { ThreadContextUsage, ThreadContextUsagePublisher } from "./chat/ThreadContextUsage";
 import { createPortal } from "react-dom";
 import { Button } from "./ui/button";
 import { ChildThreadApprovals } from "./chat/ChildThreadApprovals";
@@ -1527,6 +1528,7 @@ export default function ChatView(props: ChatViewProps) {
   const downloadFileAttachmentStable = useStableCallback(downloadFileAttachment);
   const openFileAttachment = (attachment: ChatFileAttachment) => {
     if (activeThreadRef) {
+      pane?.requestPanel(true);
       useRightPanelStore.getState().openAttachment(activeThreadRef, attachment);
       return;
     }
@@ -1969,7 +1971,9 @@ export default function ChatView(props: ChatViewProps) {
       : null;
   const canvasPreview = useThreadPreviewCanvasSource(activeThreadRef, shownPreviewMiniPlayer);
   const threadPanelInlineOpen = useRightPanelStore((state) =>
-    selectThreadPanelOpen(state.threadPanelVisibilityByThreadKey, activeThreadRef, "inline"),
+    pane
+      ? false
+      : selectThreadPanelOpen(state.threadPanelVisibilityByThreadKey, activeThreadRef, "inline"),
   );
   // Selects only the mode, so canvas resizes rerender the chat view only when the
   // card switches presentation.
@@ -3410,6 +3414,11 @@ export default function ChatView(props: ChatViewProps) {
       ref={setWorkspaceLayoutElement}
       className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden bg-background"
     >
+      <ThreadContextUsagePublisher
+        threadRef={routeThreadRef}
+        usage={activeContextWindow}
+        enabled={isServerThread && serverProjection !== null}
+      />
       {embedded ? null : (
         <DeviceSetupDialogHost
           threadKey={activeThreadKey}
@@ -3452,6 +3461,7 @@ export default function ChatView(props: ChatViewProps) {
             ) : null}
             {!rightPanelControlsAtRoot && !rightPanelControlsInPanel ? panelLayoutControls : null}
             {inlineRightPanelOwnsTitleBar ? threadPanelHeaderControl : null}
+            <ThreadContextUsage threadRef={routeThreadRef} />
             <ChatHeader
               activeThreadEnvironmentId={activeThread.environmentId}
               activeThreadId={activeThread.id}

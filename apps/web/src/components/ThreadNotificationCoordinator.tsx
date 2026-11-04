@@ -1,3 +1,4 @@
+import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 import {
   type EnvironmentThreadShell,
   type PendingSubagentRequest,
@@ -17,6 +18,7 @@ import {
   ShieldQuestionIcon,
 } from "lucide-react";
 
+import { useThreadCompletionStore } from "../threadCompletionStore";
 import { getClientSettings, subscribeClientSettings } from "../hooks/useSettings";
 import { isWindowsPlatform } from "../lib/utils";
 import { environmentSummaries } from "../state/presentation";
@@ -123,6 +125,10 @@ export function startThreadNotifications(
         .has(threadKey({ environmentId, threadId: thread.id }))
     )
       return;
+    if (kind === "completion" && state.completedAt !== null)
+      useThreadCompletionStore
+        .getState()
+        .mark(scopedThreadKey({ environmentId, threadId: thread.id }), state.completedAt);
     const { notificationMode: mode, inAppNotificationsEnabled } = getClientSettings();
     const active = (router.state.matches.at(-1)?.params ?? {}) as {
       environmentId?: string;
@@ -149,7 +155,9 @@ export function startThreadNotifications(
       inAppNotificationsEnabled &&
       document.visibilityState === "visible" &&
       document.hasFocus() &&
-      (active.environmentId !== environmentId || active.threadId !== thread.id)
+      (kind === "completion" ||
+        active.environmentId !== environmentId ||
+        active.threadId !== thread.id)
     ) {
       const toastKey = threadKey({ environmentId, threadId: thread.id });
       const toastId: ToastId = toastManager.add({
