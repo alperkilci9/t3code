@@ -3,7 +3,7 @@ import { ThreadId } from "@t3tools/contracts";
 import { DEFAULT_CLIENT_SETTINGS } from "@t3tools/contracts/settings";
 import type * as Context from "effect/Context";
 import { expect, it, vi } from "vite-plus/test";
-import { page } from "vite-plus/test/browser";
+import { page, userEvent } from "vite-plus/test/browser";
 
 import "~/index.css";
 import { AppRoot } from "~/AppRoot";
@@ -51,6 +51,8 @@ it("drags a sidebar thread to a pane edge and cancels a later drag", async () =>
     threadWithHistory("drag-a", 1),
     threadWithHistory("drag-b", 1),
     threadWithHistory("drag-c", 1),
+    threadWithHistory("drag-d", 1),
+    threadWithHistory("drag-e", 1),
   ]);
   const previous = useChatLayoutStore.getState().layout;
   using _restore = { [Symbol.dispose]: () => useChatLayoutStore.setState({ layout: previous }) };
@@ -135,4 +137,57 @@ it("drags a sidebar thread to a pane edge and cancels a later drag", async () =>
   );
   expect(useChatLayoutStore.getState().layout.panes).toHaveLength(2);
   expect(document.querySelector(".fixed[data-thread-context-drop]")).toBeNull();
+  await userEvent.click(page.getByRole("button", { name: "Columns", exact: true }));
+  for (const id of ["drag-c", "drag-d", "drag-e"]) {
+    const row = [...document.querySelectorAll<HTMLElement>("[data-sidebar-row]")].find((element) =>
+      element.textContent?.includes(`Thread ${id}`),
+    )!;
+    row.scrollIntoView({ block: "nearest" });
+    const from = row.getBoundingClientRect();
+    const toolbar = document
+      .querySelector<HTMLElement>('[aria-label="Chat view mode"]')!
+      .parentElement!.getBoundingClientRect();
+    const appendX = toolbar.left + 30,
+      appendY = toolbar.top + 14;
+    await act(() => {
+      row.dispatchEvent(pointer("pointerdown", from.left + 40, from.top + from.height / 2));
+      document.dispatchEvent(pointer("pointermove", from.left + 50, from.top + from.height / 2));
+    });
+    await act(() => document.dispatchEvent(pointer("pointermove", appendX, appendY)));
+    await vi.waitFor(() =>
+      expect(
+        document
+          .elementFromPoint(appendX, appendY)
+          ?.closest("[data-thread-context-drop]")
+          ?.classList.contains("fixed"),
+      ).toBe(true),
+    );
+    await act(() => document.dispatchEvent(pointer("pointerup", appendX, appendY, 0)));
+  }
+  expect(useChatLayoutStore.getState().layout.panes).toHaveLength(5);
+  expect(document.querySelectorAll("[data-chat-pane]")).toHaveLength(5);
+  await userEvent.click(page.getByRole("button", { name: "Grid", exact: true }));
+  await vi.waitFor(() => expect(document.querySelectorAll("[data-chat-pane]")).toHaveLength(4));
+  const savedGrid = useChatLayoutStore.getState().layout.grid;
+  const separator = document.querySelector<HTMLElement>(
+    '[role="separator"][aria-label="Resize chat panes"]',
+  )!;
+  await act(() =>
+    separator.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true, cancelable: true }),
+    ),
+  );
+  expect(useChatLayoutStore.getState().layout.grid).not.toEqual(savedGrid);
+  await act(() => separator.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
+  expect(useChatLayoutStore.getState().layout.grid).toEqual(savedGrid);
+  await userEvent.click(page.getByRole("button", { name: "Single", exact: true }));
+  await vi.waitFor(() =>
+    expect(document.querySelectorAll('[data-testid="composer-editor"]')).toHaveLength(1),
+  );
+  await userEvent.click(page.getByRole("button", { name: "Grid", exact: true }));
+  await vi.waitFor(() => expect(document.querySelectorAll("[data-chat-pane]")).toHaveLength(4));
+  expect(useChatLayoutStore.getState().layout.grid).toEqual(savedGrid);
+  await userEvent.click(page.getByRole("button", { name: "Columns", exact: true }));
+  await vi.waitFor(() => expect(document.querySelectorAll("[data-chat-pane]")).toHaveLength(5));
+  expect(useChatLayoutStore.getState().layout.panes).toHaveLength(5);
 });
