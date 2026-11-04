@@ -523,6 +523,14 @@
         }
       })();
     </script>
+    <script>
+      // StudyWorkspace Lab: the Ghost look before first paint (ghostLook.ts owns the key).
+      try {
+        if (window.localStorage.getItem("studyworkspace-lab:look") === "ghost") {
+          document.documentElement.setAttribute("data-look", "ghost");
+        }
+      } catch {}
+    </script>
     <style>
       html,
       body,

@@ -5,6 +5,7 @@ import { cn } from "~/lib/utils";
 function Shell({
   contextRow = false,
   className,
+  children,
   ...props
 }: ComponentProps<"div"> & { contextRow?: boolean }) {
   return (
@@ -26,7 +27,14 @@ function Shell({
         className,
       )}
       {...props}
-    />
+    >
+      {children}
+      {/* Ghost look only (ghost.css): the halo round the card and the light on its top edge. */}
+      <span data-ghost-halo="" aria-hidden="true" />
+      <span data-ghost-rev="" aria-hidden="true">
+        <i />
+      </span>
+    </div>
   );
 }
 

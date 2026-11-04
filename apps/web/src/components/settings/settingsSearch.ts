@@ -350,6 +350,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["reasoning effort thinking bars graph word label level composer"],
   },
   {
+    id: "ghost-look",
+    title: "Ghost look",
+    to: "/settings/appearance",
+    searchTerms: ["studyworkspace night glow lights laser turbo backdrop"],
+  },
+  {
     id: "math-rendering",
     title: "Render math",
     to: "/settings/appearance",

@@ -1,5 +1,5 @@
 import type { CSSProperties } from "react";
-import { useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import {
   DEFAULT_ENVIRONMENT_IDENTIFICATION_MODE,
   DEFAULT_UNIFIED_SETTINGS,
@@ -21,6 +21,7 @@ import {
 import { useCustomThemes } from "../../hooks/useCustomThemes";
 import { useEnvironmentIdentificationMode } from "../../hooks/useSettings";
 import { useTheme } from "../../hooks/useTheme";
+import { readGhostLook, setGhostLook, subscribeGhostLook } from "../../ghostLook";
 import { useScopedSettings, useUpdateScopedSettings } from "./useScopedSettings";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Switch } from "../ui/switch";
@@ -96,6 +97,7 @@ export function AppearanceSettingsPanel() {
     themeHalves,
   } = useTheme();
   const customThemes = useCustomThemes();
+  const ghostLook = useSyncExternalStore(subscribeGhostLook, readGhostLook, readGhostLook);
   const [isImportThemeOpen, setIsImportThemeOpen] = useState(false);
   const settings = useScopedSettings();
   const updateSettings = useUpdateScopedSettings();
@@ -321,6 +323,17 @@ export function AppearanceSettingsPanel() {
                 </SelectPopup>
               </Select>
             </div>
+          }
+        />
+        <SettingsRow
+          {...searchableSetting("ghost-look")}
+          description="StudyWorkspace's night look in the selected theme's colours: glass panels, a lit backdrop, and a light on the composer that follows your typing and runs while the agent works."
+          control={
+            <Switch
+              checked={ghostLook === "ghost"}
+              onCheckedChange={(checked) => setGhostLook(checked ? "ghost" : "standard")}
+              aria-label="Ghost look"
+            />
           }
         />
         <SettingsRow
