@@ -152,8 +152,9 @@ function WindowBar({
           <div className="absolute inset-x-0 inset-y-1.5 rounded-full bg-muted" />
           {remaining > 0 ? (
             <div
+              data-ghost-limit-fill=""
               className="absolute inset-y-1.5 left-0 rounded-full"
-              style={{ width: `${remaining}%`, backgroundColor: color }}
+              style={{ width: `${remaining}%`, backgroundColor: color, color }}
             />
           ) : null}
         </div>

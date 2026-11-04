@@ -111,8 +111,7 @@ html[data-look="ghost"] [data-ghost-backdrop] {
   opacity: calc(0.3 + 0.7 * var(--ghost-turbo, 0));
 }
 
-/* The rev line: the throttle as light along the composer's top edge, brightest at its head.
-   Past 0.85 it flickers (redline). While the agent works, a light runs along it. */
+/* The rev line stays inside the composer's width; its glow has vertical breathing room. */
 html[data-look="ghost"] [data-ghost-rev] {
   display: block;
   position: absolute;
@@ -121,6 +120,7 @@ html[data-look="ghost"] [data-ghost-rev] {
   left: 14px;
   right: 14px;
   height: 2px;
+  clip-path: inset(-16px 0);
   pointer-events: none;
 }
 html[data-look="ghost"] [data-ghost-rev]::before {
@@ -152,13 +152,8 @@ html[data-look="ghost"] [data-ghost-rev] i {
     0 0 24px color-mix(in srgb, var(--ghost-accent) 40%, transparent);
   opacity: min(1, calc(var(--turbo, 0) * 5));
 }
-html[data-look="ghost"] [data-ghost-redline] [data-ghost-rev] i {
-  animation: ghost-redline 0.16s steps(2) infinite;
-}
-@keyframes ghost-redline {
-  50% {
-    filter: brightness(1.7);
-  }
+html[data-look="ghost"] [data-ghost-rev][data-ghost-redline] i {
+  filter: brightness(1.15);
 }
 html[data-look="ghost"] [data-ghost-phase="running"] [data-ghost-rev]::after {
   content: "";
@@ -175,7 +170,8 @@ html[data-look="ghost"] [data-ghost-phase="running"] [data-ghost-rev]::after {
     transparent
   );
   box-shadow: 0 0 12px color-mix(in srgb, var(--ghost-accent) 80%, transparent);
-  animation: ghost-rev-run 1.1s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+  will-change: transform;
+  animation: ghost-rev-run 1.6s linear infinite;
 }
 @keyframes ghost-rev-run {
   from {
@@ -271,6 +267,31 @@ html[data-look="ghost"] [data-ghost-lap].is-lap {
   to {
     background-position: 0 0;
   }
+}
+
+/* Subscription bars keep their measured widths and pace gaps; only their paint changes. */
+html[data-look="ghost"] [data-ghost-limit-fill] {
+  opacity: 1;
+  background-color: color-mix(in srgb, currentColor 18%, transparent) !important;
+  box-shadow: inset 0 1px 0 color-mix(in srgb, currentColor 28%, transparent);
+}
+html[data-look="ghost"] [data-ghost-limit-fill]::after {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  top: calc(50% - 1px);
+  height: 2px;
+  border-radius: 2px;
+  pointer-events: none;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, currentColor 45%, transparent),
+    currentColor 55%,
+    color-mix(in srgb, currentColor 35%, white) 100%
+  );
+  box-shadow:
+    0 0 5px color-mix(in srgb, currentColor 85%, transparent),
+    0 0 12px color-mix(in srgb, currentColor 45%, transparent);
 }
 
 @media (prefers-reduced-motion: reduce) {

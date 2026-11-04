@@ -369,8 +369,9 @@ function SegmentTriggers({
           <div className="absolute inset-0" style={paceMark?.gap}>
             <div
               aria-hidden
+              data-ghost-limit-fill=""
               className="absolute inset-y-0 left-0 rounded-md opacity-35"
-              style={{ width: `${remaining}%`, backgroundColor: color }}
+              style={{ width: `${remaining}%`, backgroundColor: color, color }}
             />
             {remaining < 100 && reset && refillPercent > 0 ? (
               <div

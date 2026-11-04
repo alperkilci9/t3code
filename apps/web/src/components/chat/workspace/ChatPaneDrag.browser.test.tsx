@@ -6,12 +6,14 @@ import { expect, it, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 
 import "~/index.css";
+import "~/ghost.css";
 import { AppRoot } from "~/AppRoot";
 // The route loads ChatView lazily, and its first transform (React Compiler over ~4k lines)
 // takes 6-11s; importing it here keeps that out of the test's timeout.
 import "~/components/ChatView";
 import { useChatLayoutStore } from "~/chatLayoutStore";
 import { initialChatLayout } from "~/chatLayout";
+import { readGhostLook, setGhostLook } from "~/ghostLook";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { __setClientSettingsForTests } from "~/hooks/useSettings";
 import { getRouter } from "~/router";
@@ -42,6 +44,8 @@ vi.mock(import("~/rpc/requestLatencyState"), async (original) => ({
 }));
 
 it("drags a sidebar thread to a pane edge and cancels a later drag", async () => {
+  const previousLook = readGhostLook();
+  using _look = { [Symbol.dispose]: () => setGhostLook(previousLook) };
   const viewport = { width: window.innerWidth, height: window.innerHeight };
   await page.viewport(1440, 900);
   await using _viewport = {
@@ -76,6 +80,10 @@ it("drags a sidebar thread to a pane edge and cancels a later drag", async () =>
   await router.load();
   await using _screen = await render(<AppRoot router={router} />, { router: false }); // AppRoot owns routing.
   await expect.element(page.getByTestId("composer-editor").first()).toBeVisible();
+  await act(() => setGhostLook("ghost"));
+  expect(
+    getComputedStyle(document.querySelector('[data-slot="sidebar-inset"]')!).backdropFilter,
+  ).toContain("blur");
   const source = [...document.querySelectorAll<HTMLElement>("[data-sidebar-row]")].find((element) =>
     element.textContent?.includes("Thread drag-b"),
   );
@@ -147,8 +155,13 @@ it("drags a sidebar thread to a pane edge and cancels a later drag", async () =>
     const toolbar = document
       .querySelector<HTMLElement>('[aria-label="Chat view mode"]')!
       .parentElement!.getBoundingClientRect();
-    const appendX = toolbar.left + 30,
-      appendY = toolbar.top + 14;
+    const canvas = document.querySelector("[data-chat-pane-canvas]")!.getBoundingClientRect();
+    const lastColumn = [...document.querySelectorAll("[data-pane-viewport]")]
+      .at(-1)!
+      .getBoundingClientRect();
+    const appendX = id === "drag-c" ? (lastColumn.right + canvas.right) / 2 : toolbar.left + 30,
+      appendY = id === "drag-c" ? canvas.top + canvas.height / 2 : toolbar.top + 14;
+    if (id === "drag-c") expect(lastColumn.right).toBeLessThan(canvas.right);
     await act(() => {
       row.dispatchEvent(pointer("pointerdown", from.left + 40, from.top + from.height / 2));
       document.dispatchEvent(pointer("pointermove", from.left + 50, from.top + from.height / 2));

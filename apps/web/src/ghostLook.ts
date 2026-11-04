@@ -116,31 +116,45 @@ export function flashClass(element: Element | null, className: string, durationM
 }
 
 /**
- * Drives --turbo from keystrokes in any composer. The composer that was typed in carries its
- * own --turbo (its rev line and halo); the root carries the same value as --ghost-turbo for
- * the backdrop. The
- * loop runs only while the throttle is open or falling, and stops at rest.
+ * Updates only the active composer's light layers and the backdrop, avoiding inherited
+ * per-frame style changes across the conversation tree. Stops at rest or on focus loss.
  */
 export function installGhostTurbo(): () => void {
-  const root = document.documentElement;
-  const throttle = createThrottle();
+  const backdrop = document.querySelector<HTMLElement>("[data-ghost-backdrop]");
+  let throttle = createThrottle();
   let target: HTMLElement | null = null;
+  let lights: HTMLElement[] = [];
+  let rev: HTMLElement | null = null;
   let frame = 0;
 
-  // The composer's own --turbo; the root's is a separate name so it does not reach every
-  // composer through inheritance.
   const write = (element: HTMLElement | null, level: number, name = "--turbo") => {
     if (!element) return;
-    if (level === 0) element.style.removeProperty(name);
-    else element.style.setProperty(name, level.toFixed(3));
+    const value = level === 0 ? "" : level.toFixed(3);
+    if (element.style.getPropertyValue(name) === value) return;
+    if (value === "") element.style.removeProperty(name);
+    else element.style.setProperty(name, value);
+  };
+
+  const clear = () => {
+    if (frame) window.cancelAnimationFrame(frame);
+    frame = 0;
+    write(backdrop, 0, BACKDROP_TURBO);
+    for (const light of lights) write(light, 0);
+    rev?.removeAttribute("data-ghost-redline");
+    target = null;
+    rev = null;
+    lights = [];
+    throttle = createThrottle();
   };
 
   const tick = () => {
     frame = 0;
     const { level } = throttle.sample(performance.now());
-    write(root, level, BACKDROP_TURBO);
-    write(target, level);
-    target?.toggleAttribute("data-ghost-redline", level > 0.85);
+    write(backdrop, level, BACKDROP_TURBO);
+    for (const light of lights) write(light, level);
+    if (rev?.hasAttribute("data-ghost-redline") !== level > 0.85) {
+      rev?.toggleAttribute("data-ghost-redline", level > 0.85);
+    }
     if (level > 0) frame = window.requestAnimationFrame(tick);
   };
 
@@ -149,9 +163,10 @@ export function installGhostTurbo(): () => void {
     const shell = event.target.closest<HTMLElement>(COMPOSER_SELECTOR);
     if (!shell) return;
     if (target !== shell) {
-      write(target, 0);
-      target?.removeAttribute("data-ghost-redline");
+      clear();
       target = shell;
+      lights = [...shell.querySelectorAll<HTMLElement>("[data-ghost-rev], [data-ghost-halo]")];
+      rev = shell.querySelector<HTMLElement>("[data-ghost-rev]");
     }
     // Reduced motion: the look stays, its lights stay still.
     if (prefersReducedMotion()) return;
@@ -159,13 +174,22 @@ export function installGhostTurbo(): () => void {
     if (!frame) frame = window.requestAnimationFrame(tick);
   };
 
+  const onFocus = (event: FocusEvent) => {
+    if (target && event.target instanceof Node && !target.contains(event.target)) clear();
+  };
+  const onVisibility = () => {
+    if (document.hidden) clear();
+  };
+
   window.addEventListener("beforeinput", onInput, true);
+  window.addEventListener("focusin", onFocus, true);
+  window.addEventListener("blur", clear);
+  document.addEventListener("visibilitychange", onVisibility);
   return () => {
     window.removeEventListener("beforeinput", onInput, true);
-    if (frame) window.cancelAnimationFrame(frame);
-    write(root, 0, BACKDROP_TURBO);
-    write(target, 0);
-    target?.removeAttribute("data-ghost-redline");
-    target = null;
+    window.removeEventListener("focusin", onFocus, true);
+    window.removeEventListener("blur", clear);
+    document.removeEventListener("visibilitychange", onVisibility);
+    clear();
   };
 }

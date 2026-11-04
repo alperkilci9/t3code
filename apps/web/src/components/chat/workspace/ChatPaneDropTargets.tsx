@@ -1,4 +1,5 @@
 import { useRef } from "react";
+import { createPortal } from "react-dom";
 import type { EnvironmentId } from "@t3tools/contracts";
 import { useChatLayoutStore } from "../../../chatLayoutStore";
 import { useComposerDraftStore } from "../../../composerDraftStore";
@@ -139,6 +140,20 @@ export function ChatPaneDropTargets({
       });
   }
   const canvas = root.querySelector("[data-chat-pane-canvas]")?.getBoundingClientRect();
+  if (layout.mode === "columns" && canvas) {
+    const lastColumn = [...root.querySelectorAll("[data-pane-viewport]")]
+      .at(-1)
+      ?.getBoundingClientRect();
+    zones.push({
+      drop: { kind: "append" },
+      rect: {
+        left: Math.max(canvas.left, lastColumn?.right ?? canvas.left),
+        right: canvas.right,
+        top: canvas.top,
+        bottom: canvas.bottom,
+      },
+    });
+  }
   const geometry: ChatPaneDropGeometry = {
     mode: layout.mode,
     append: zones.find((zone) => zone.drop.kind === "append")?.rect ?? null,
@@ -150,29 +165,33 @@ export function ChatPaneDropTargets({
       zone.drop.kind === "before-column" ? [{ paneId: zone.drop.paneId, rect: zone.rect }] : [],
     ),
   };
-  return zones.map((zone) => {
-    const bounds = zone.drop.kind === "append" ? root.getBoundingClientRect() : canvas;
-    if (!bounds) return null;
-    const rect = {
-      left: Math.max(zone.rect.left, bounds.left, 0),
-      right: Math.min(zone.rect.right, bounds.right, window.innerWidth),
-      top: Math.max(zone.rect.top, bounds.top, 0),
-      bottom: Math.min(zone.rect.bottom, bounds.bottom, window.innerHeight),
-    };
-    if (rect.left >= rect.right || rect.top >= rect.bottom) return null;
-    const resolved = resolveChatPaneDrop(
-      { x: (rect.left + rect.right) / 2, y: (rect.top + rect.bottom) / 2 },
-      geometry,
-    );
-    const drop = resolved && canApplyChatPaneDrop(layout, resolved) ? resolved : zone.drop;
-    return (
-      <DropZone
-        key={JSON.stringify(zone.drop)}
-        rect={rect}
-        drop={drop}
-        environmentId={environmentId}
-        onFocus={onFocus}
-      />
-    );
-  });
+  // Viewport coordinates must stay outside the Ghost glass's fixed-position containing block.
+  return createPortal(
+    zones.map((zone) => {
+      const bounds = zone.drop.kind === "append" ? root.getBoundingClientRect() : canvas;
+      if (!bounds) return null;
+      const rect = {
+        left: Math.max(zone.rect.left, bounds.left, 0),
+        right: Math.min(zone.rect.right, bounds.right, window.innerWidth),
+        top: Math.max(zone.rect.top, bounds.top, 0),
+        bottom: Math.min(zone.rect.bottom, bounds.bottom, window.innerHeight),
+      };
+      if (rect.left >= rect.right || rect.top >= rect.bottom) return null;
+      const resolved = resolveChatPaneDrop(
+        { x: (rect.left + rect.right) / 2, y: (rect.top + rect.bottom) / 2 },
+        geometry,
+      );
+      const drop = resolved && canApplyChatPaneDrop(layout, resolved) ? resolved : zone.drop;
+      return (
+        <DropZone
+          key={`${JSON.stringify(zone.drop)}:${zone.rect.left}:${zone.rect.top}`}
+          rect={rect}
+          drop={drop}
+          environmentId={environmentId}
+          onFocus={onFocus}
+        />
+      );
+    }),
+    document.body,
+  );
 }
