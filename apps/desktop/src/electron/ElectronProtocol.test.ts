@@ -29,6 +29,9 @@ describe("ElectronProtocol", () => {
 
   it.effect("serves the bundled client from disk without a backend", () =>
     Effect.gen(function* () {
+      assert.equal(ElectronProtocol.getDesktopScheme(false), "studyworkspace-lab");
+      assert.equal(ElectronProtocol.getDesktopScheme(true), "studyworkspace-lab-dev");
+      assert.equal(ElectronProtocol.getDesktopUrl(false), "studyworkspace-lab://app/");
       const fileSystem = yield* FileSystem.FileSystem;
       const directory = yield* fileSystem.makeTempDirectoryScoped();
       yield* fileSystem.writeFileString(`${directory}/index.html`, "<html>app</html>");

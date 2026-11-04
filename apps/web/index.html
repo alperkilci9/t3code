@@ -12,6 +12,7 @@
     <link rel="manifest" href="/manifest.webmanifest" />
     <script>
       (() => {
+        const DEFAULT_THEME_ID = "study-legacy";
         const LIGHT_BACKGROUND = "#ffffff";
         const DARK_BACKGROUND = "#000000";
         const CUSTOM_THEMES_STORAGE_KEY = "t3code:themes:v1";
@@ -51,6 +52,142 @@
         // Keep this small boot-time copy in sync with the built-in palettes so
         // the selected theme is visible before the app has mounted.
         const BUILT_IN_THEME_PALETTES = {
+          "study-legacy": {
+            dark: {
+              background: "#050505",
+              foreground: "#fafafa",
+              accent: "#c73a4a",
+              chrome: "#050505",
+            },
+          },
+          "study-crimson": {
+            dark: {
+              background: "#020306",
+              foreground: "#eef1f6",
+              accent: "#c73a4a",
+              chrome: "#020306",
+            },
+          },
+          "study-graphite": {
+            dark: {
+              background: "#050506",
+              foreground: "#eceef2",
+              accent: "#cdd2dc",
+              chrome: "#050506",
+            },
+          },
+          "study-aurora": {
+            dark: {
+              background: "#010608",
+              foreground: "#e4f4f2",
+              accent: "#26c8b4",
+              chrome: "#010608",
+            },
+          },
+          "study-eclipse": {
+            dark: {
+              background: "#070504",
+              foreground: "#f6eee2",
+              accent: "#e49234",
+              chrome: "#070504",
+            },
+          },
+          "study-ultra": {
+            dark: {
+              background: "#05030b",
+              foreground: "#f0ecfc",
+              accent: "#a052f5",
+              chrome: "#05030b",
+            },
+          },
+          "study-deepsea": {
+            dark: {
+              background: "#000000",
+              foreground: "#f0edcf",
+              accent: "#40a2d8",
+              chrome: "#000000",
+            },
+          },
+          "study-brass": {
+            dark: {
+              background: "#0d1830",
+              foreground: "#ede8e2",
+              accent: "#fab95b",
+              chrome: "#0d1830",
+            },
+          },
+          "study-coral": {
+            dark: {
+              background: "#182526",
+              foreground: "#eff5f5",
+              accent: "#eb6440",
+              chrome: "#182526",
+            },
+          },
+          "study-oxblood": {
+            dark: {
+              background: "#2a1313",
+              foreground: "#eeeeee",
+              accent: "#47a992",
+              chrome: "#2a1313",
+            },
+          },
+          "study-paper": {
+            light: {
+              background: "#ddd6c9",
+              foreground: "#1e1914",
+              accent: "#962232",
+              chrome: "#ddd6c9",
+            },
+          },
+          "study-nordic": {
+            light: {
+              background: "#d4e1e1",
+              foreground: "#132440",
+              accent: "#bf092f",
+              chrome: "#d4e1e1",
+            },
+          },
+          "study-cobalt": {
+            light: {
+              background: "#ebdec5",
+              foreground: "#201658",
+              accent: "#1d24ca",
+              chrome: "#ebdec5",
+            },
+          },
+          "study-frost": {
+            light: {
+              background: "#cfdfe5",
+              foreground: "#0b2447",
+              accent: "#576cbc",
+              chrome: "#cfdfe5",
+            },
+          },
+          "study-mint": {
+            light: {
+              background: "#cae5dd",
+              foreground: "#03001c",
+              accent: "#301e67",
+              chrome: "#cae5dd",
+            },
+          },
+          "study-forest": {
+            light: {
+              background: "#e2e1c4",
+              foreground: "#12372a",
+              accent: "#436850",
+              chrome: "#e2e1c4",
+            },
+          },
+          "study-linen": {
+            light: {
+              background: "#dfdfd8",
+              foreground: "#0c4013",
+              accent: "#b15a21",
+              chrome: "#dfdfd8",
+            },
+          },
           "t3-chat": {
             light: {
               background: "oklch(0.982446 0.010114 325.653)",
@@ -132,11 +269,7 @@
           "system",
           "light",
           "dark",
-          "t3-chat",
-          "grove",
-          "ocean",
-          "ember",
-          "iris",
+          ...Object.keys(BUILT_IN_THEME_PALETTES),
           "t3-chat-dark",
           "t3-grove",
           "t3-ocean",
@@ -224,7 +357,9 @@
           };
           const isLegacyT3ChatDark = storedTheme === "t3-chat-dark";
           const themeId =
-            storedTheme === null ? "" : (LEGACY_THEME_IDS[storedTheme] ?? storedTheme);
+            storedTheme === null
+              ? DEFAULT_THEME_ID
+              : (LEGACY_THEME_IDS[storedTheme] ?? storedTheme);
           const legacyMode = isLegacyT3ChatDark ? "dark" : null;
           const builtInModes = BUILT_IN_THEME_MODES[themeId] ?? null;
           const customTheme = builtInModes ? null : findCustomTheme(themeId);
@@ -240,9 +375,9 @@
             storedTheme === "dark" ||
             storedTheme === "system" ||
             themeModes !== null;
-          const theme = isKnownTheme && storedTheme ? storedTheme : "system";
+          const theme = isKnownTheme ? (storedTheme ?? DEFAULT_THEME_ID) : "system";
           const isThemed = isKnownTheme && themeModes !== null;
-          const baseAppearance = customTheme ? customTheme.appearance : "light";
+          const baseAppearance = customTheme?.appearance ?? themeModes?.[0] ?? "light";
           const systemMode = prefersDark ? "dark" : "light";
           const storedAppearanceMode = window.localStorage.getItem(
             THEME_APPEARANCE_MODE_STORAGE_KEY,
@@ -348,7 +483,9 @@
           }
           // A resolved half is a selection even when the base theme is gone
           // (deleting the base leaves the mix pointing at a real theme).
-          const hasSelection = halfThemeId !== null || (isKnownTheme && storedTheme !== null);
+          const hasSelection =
+            halfThemeId !== null ||
+            (isKnownTheme && (storedTheme !== null || themeId === DEFAULT_THEME_ID));
           if (hasSelection) {
             document.documentElement.dataset.themeSelected = "true";
           } else {
@@ -373,16 +510,16 @@
           }
           setThemeColor(chromeColor);
         } catch {
-          let prefersDark = true;
-          try {
-            prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-          } catch {}
-          delete document.documentElement.dataset.themeId;
-          delete document.documentElement.dataset.themeSelected;
-          document.documentElement.classList.toggle("dark", prefersDark);
-          const fallbackColor = prefersDark ? DARK_BACKGROUND : LIGHT_BACKGROUND;
-          document.documentElement.style.backgroundColor = fallbackColor;
-          setThemeColor(fallbackColor);
+          const fallback = BUILT_IN_THEME_PALETTES[DEFAULT_THEME_ID].dark;
+          document.documentElement.dataset.themeId = DEFAULT_THEME_ID;
+          document.documentElement.dataset.themeSelected = "true";
+          document.documentElement.classList.toggle("dark", true);
+          document.documentElement.style.backgroundColor = fallback.chrome;
+          document.documentElement.style.setProperty("--boot-background", fallback.background);
+          document.documentElement.style.setProperty("--boot-foreground", fallback.foreground);
+          document.documentElement.style.setProperty("--boot-accent", fallback.accent);
+          document.documentElement.style.setProperty("--boot-chrome", fallback.chrome);
+          setThemeColor(fallback.chrome);
         }
       })();
     </script>

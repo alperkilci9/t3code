@@ -1,3 +1,4 @@
+import { STUDYWORKSPACE_THEMES } from "@t3tools/shared/themePalettes";
 import {
   CheckIcon,
   CopyIcon,
@@ -55,6 +56,7 @@ import {
 import { ThemeWireframe } from "./ThemeWireframe";
 
 const MAINTAINER_THEMES: ReadonlyArray<ThemeDefinition> = [
+  ...STUDYWORKSPACE_THEMES,
   T3_CHAT_THEME,
   GROVE_THEME,
   OCEAN_THEME,
@@ -755,7 +757,11 @@ export function ThemeLibrary({
                   initialAppearance,
                 })
               }
-              onUse={() => persistTheme(maintainerTheme.id)}
+              onUse={() => {
+                if (!persistTheme(maintainerTheme.id)) return;
+                const appearance = singleAppearanceOf(maintainerTheme);
+                if (appearance !== null) setMode(appearance);
+              }}
               onUseMode={handlePairPick(maintainerTheme.id)}
               theme={card}
             />

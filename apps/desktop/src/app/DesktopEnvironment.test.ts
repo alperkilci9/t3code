@@ -60,7 +60,7 @@ describe("DesktopEnvironment", () => {
     }),
   );
 
-  it.effect("keeps implicit development state separate from production state", () =>
+  it.effect("keeps Lab development and production state isolated from T3", () =>
     Effect.gen(function* () {
       const development = yield* makeEnvironment(
         {},
@@ -68,8 +68,19 @@ describe("DesktopEnvironment", () => {
       );
       const production = yield* makeEnvironment();
 
-      assert.equal(development.stateDir, "/Users/alice/.t3/dev");
-      assert.equal(production.stateDir, "/Users/alice/.t3/userdata");
+      assert.equal(development.baseDir, "/Users/alice/.studyworkspace-lab");
+      assert.equal(production.baseDir, "/Users/alice/.studyworkspace-lab");
+      assert.equal(development.stateDir, "/Users/alice/.studyworkspace-lab/dev");
+      assert.equal(production.stateDir, "/Users/alice/.studyworkspace-lab/userdata");
+      assert.equal(development.appUserModelId, "com.studyworkspace.lab.dev");
+      assert.equal(production.appUserModelId, "com.studyworkspace.lab");
+      assert.equal(development.linuxDesktopEntryName, "com.studyworkspace.Lab.Development.desktop");
+      assert.equal(production.linuxDesktopEntryName, "com.studyworkspace.Lab.desktop");
+      const inherited = yield* makeEnvironment({}, { T3CODE_HOME: "/Users/alice/.t3" });
+      assert.equal(inherited.baseDir, "/Users/alice/.studyworkspace-lab");
+      const explicit = yield* makeEnvironment({}, { STUDYWORKSPACE_LAB_HOME: " /isolated/lab " });
+      assert.equal(explicit.baseDir, "/isolated/lab");
+      assert.equal(explicit.stateDir, "/isolated/lab/userdata");
     }),
   );
 });

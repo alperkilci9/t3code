@@ -1,3 +1,44 @@
+export const STUDYWORKSPACE_DEFAULT_THEME_ID = "study-legacy";
+
+// StudyWorkspace assets/themes/themes.json: void, ink, rim, rimHi and vol retain their source values.
+const STUDYWORKSPACE_THEME_SEEDS = [
+  ["study-legacy", "Legacy default", "dark", "#050505", "#fafafa", "#c73a4a", "#f2a9b1", "#4c7ecd"],
+  [
+    "study-crimson",
+    "Crimson Horizon",
+    "dark",
+    "#020306",
+    "#eef1f6",
+    "#c73a4a",
+    "#f2a9b1",
+    "#96afdc",
+  ],
+  ["study-graphite", "Graphite", "dark", "#050506", "#eceef2", "#cdd2dc", "#ffffff", "#aab2c4"],
+  ["study-aurora", "Aurora", "dark", "#010608", "#e4f4f2", "#26c8b4", "#aaf6e4", "#50bec8"],
+  ["study-eclipse", "Eclipse", "dark", "#070504", "#f6eee2", "#e49234", "#ffdca0", "#e1b482"],
+  ["study-ultra", "Ultraviolet", "dark", "#05030b", "#f0ecfc", "#a052f5", "#f4a8fc", "#9682ff"],
+  ["study-deepsea", "Deep Sea", "dark", "#000000", "#f0edcf", "#40a2d8", "#a9d5ed", "#0b60b0"],
+  ["study-brass", "Navy & Brass", "dark", "#0d1830", "#ede8e2", "#fab95b", "#fde0b5", "#547792"],
+  ["study-coral", "Coral Slate", "dark", "#182526", "#eff5f5", "#eb6440", "#f6b9a9", "#d6e4e5"],
+  [
+    "study-oxblood",
+    "Oxblood & Jade",
+    "dark",
+    "#2a1313",
+    "#eeeeee",
+    "#47a992",
+    "#acd8ce",
+    "#7a3e3e",
+  ],
+  ["study-paper", "Paper", "light", "#ddd6c9", "#1e1914", "#962232", "#c65060", "#8c6e50"],
+  ["study-nordic", "Nordic", "light", "#d4e1e1", "#132440", "#bf092f", "#d55f78", "#16476a"],
+  ["study-cobalt", "Cobalt Cream", "light", "#ebdec5", "#201658", "#1d24ca", "#6c71dd", "#98abee"],
+  ["study-frost", "Frost", "light", "#cfdfe5", "#0b2447", "#576cbc", "#929fd3", "#19376d"],
+  ["study-mint", "Mint Violet", "light", "#cae5dd", "#03001c", "#301e67", "#786d9c", "#5b8fb9"],
+  ["study-forest", "Forest Ivory", "light", "#e2e1c4", "#12372a", "#436850", "#859d8d", "#adbc9f"],
+  ["study-linen", "Linen Ember", "light", "#dfdfd8", "#0c4013", "#b15a21", "#cc946e", "#41644a"],
+] as const;
+
 export const BUILT_IN_THEME_IDS = ["t3-chat", "grove", "ocean", "ember", "iris"] as const;
 
 export const MOBILE_DEFAULT_THEME_ID = "t3-code";
@@ -10,6 +51,7 @@ export const RESERVED_THEME_IDS: ReadonlySet<string> = new Set([
   "light",
   "dark",
   ...BUILT_IN_THEME_IDS,
+  ...STUDYWORKSPACE_THEME_SEEDS.map(([id]) => id),
   "t3-chat-dark",
   "t3-grove",
   "t3-ocean",
@@ -907,6 +949,109 @@ export const IRIS_THEME: ThemeDefinition = {
   },
   sidebarArtwork: true,
 };
+
+function mixStudyColors(first: string, second: string, amount: number): string {
+  const channels = [1, 3, 5].map((offset) => {
+    const a = Number.parseInt(first.slice(offset, offset + 2), 16);
+    const b = Number.parseInt(second.slice(offset, offset + 2), 16);
+    return Math.round(a + (b - a) * amount)
+      .toString(16)
+      .padStart(2, "0");
+  });
+  return `#${channels.join("")}`;
+}
+
+function studyAccentForeground(accent: string): string {
+  const linear = [1, 3, 5].map((offset) => {
+    const channel = Number.parseInt(accent.slice(offset, offset + 2), 16) / 255;
+    return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
+  });
+  const luminance = linear[0]! * 0.2126 + linear[1]! * 0.7152 + linear[2]! * 0.0722;
+  return (luminance + 0.05) / 0.05 >= 1.05 / (luminance + 0.05) ? "#000000" : "#ffffff";
+}
+
+export const STUDYWORKSPACE_THEMES: ReadonlyArray<ThemeDefinition> = STUDYWORKSPACE_THEME_SEEDS.map(
+  ([id, label, appearance, canvas, text, accent, highlight, volume]) => {
+    const defaults = appearance === "dark" ? T3_CODE_DARK_THEME_COLORS : T3_CODE_LIGHT_THEME_COLORS;
+    const surface = mixStudyColors(canvas, text, 0.035);
+    const raised = mixStudyColors(canvas, text, 0.06);
+    const overlay = mixStudyColors(canvas, text, 0.09);
+    const muted = mixStudyColors(canvas, text, appearance === "dark" ? 0.62 : 0.7);
+    const border = mixStudyColors(canvas, text, 0.18);
+    const accentSurface = mixStudyColors(canvas, accent, 0.14);
+    const actionForeground = studyAccentForeground(accent);
+    const searchBackground = mixStudyColors(canvas, accent, 0.4);
+    return {
+      id,
+      label,
+      appearance,
+      sidebarArtwork: false,
+      collection: { id: "studyworkspace", label: "StudyWorkspace" },
+      colors: {
+        ...defaults,
+        canvas,
+        chrome: canvas,
+        toolbar: canvas,
+        sidebar: canvas,
+        toolbarForeground: text,
+        toolbarBorder: border,
+        toolbarControl: raised,
+        toolbarControlForeground: text,
+        toolbarControlHover: overlay,
+        surface,
+        surfaceRaised: raised,
+        surfaceOverlay: overlay,
+        text,
+        textMuted: muted,
+        border,
+        input: border,
+        focus: accent,
+        accent,
+        accentForeground: actionForeground,
+        secondary: raised,
+        secondaryForeground: text,
+        muted: surface,
+        mutedForeground: muted,
+        placeholder: muted,
+        secondaryLabel: muted,
+        iconMuted: muted,
+        update: accent,
+        updateForeground: appearance === "dark" ? highlight : accent,
+        updateSurface: accentSurface,
+        accentSurface,
+        accentSurfaceForeground: text,
+        messageSurface: mixStudyColors(canvas, accent, 0.08),
+        messageForeground: text,
+        messageAction: accent,
+        messageActionForeground: actionForeground,
+        messageActionHover: mixStudyColors(
+          accent,
+          actionForeground === "#000000" ? "#ffffff" : "#000000",
+          0.1,
+        ),
+        codeBackground: surface,
+        codeForeground: text,
+        searchMatchBackground: searchBackground,
+        searchMatchForeground: studyAccentForeground(searchBackground),
+        searchMatchActiveBackground: accent,
+        searchMatchActiveForeground: actionForeground,
+        sidebarForeground: text,
+        sidebarMutedForeground: muted,
+        sidebarControlSurface: raised,
+        sidebarRowHover: surface,
+        sidebarRowActive: accentSurface,
+        sidebarRowSelected: mixStudyColors(canvas, accent, 0.2),
+        sidebarBorder: border,
+        terminalBackground: canvas,
+        terminalForeground: text,
+        terminalCursor: highlight,
+        terminalSelection: mixStudyColors(canvas, volume, 0.3),
+        terminalScrollbar: mixStudyColors(canvas, text, 0.22),
+        terminalScrollbarHover: mixStudyColors(canvas, text, 0.35),
+      },
+    };
+  },
+);
 
 export const BUILT_IN_THEMES: ReadonlyArray<ThemeDefinition> = [
   T3_CHAT_THEME,

@@ -131,13 +131,13 @@ describe("DesktopPreReadyPlatform", () => {
     let desktopEntry = previousEntry;
     let iconInstalled = false;
     copyFileSyncMock.mockImplementation((_source: string, destination: string) => {
-      iconInstalled = destination === "/xdg/icons/com.t3tools.T3Code.desktop.png";
+      iconInstalled = destination === "/xdg/icons/com.studyworkspace.Lab.desktop.png";
     });
     setDesktopNameMock.mockImplementation((name: string) => {
       desktopName = name;
     });
     writeFileSyncMock.mockImplementation((path: string, contents: string) => {
-      if (path === "/xdg/applications/com.t3tools.T3Code.desktop") desktopEntry = contents;
+      if (path === "/xdg/applications/com.studyworkspace.Lab.desktop") desktopEntry = contents;
     });
 
     return Effect.scoped(
@@ -153,13 +153,16 @@ describe("DesktopPreReadyPlatform", () => {
           ),
         );
         const identity = yield* Effect.promise(() => portalIdentity);
-        assert.equal(identity.desktopName, "com.t3tools.T3Code.desktop");
+        assert.equal(identity.desktopName, "com.studyworkspace.Lab.desktop");
         assert.include(identity.desktopEntry ?? "", "Exec=/Applications/current.AppImage %U");
         assert.include(identity.desktopEntry ?? "", "Name=StudyWorkspace Lab (Beta)");
-        assert.include(identity.desktopEntry ?? "", "MimeType=x-scheme-handler/t3code;");
         assert.include(
           identity.desktopEntry ?? "",
-          "Icon=/xdg/icons/com.t3tools.T3Code.desktop.png",
+          "MimeType=x-scheme-handler/studyworkspace-lab;",
+        );
+        assert.include(
+          identity.desktopEntry ?? "",
+          "Icon=/xdg/icons/com.studyworkspace.Lab.desktop.png",
         );
         assert.isTrue(identity.iconInstalled);
       }),
@@ -181,7 +184,7 @@ describe("DesktopPreReadyPlatform", () => {
           ),
         );
         const entry = writeFileSyncMock.mock.calls.find(
-          ([path]) => path === "/xdg/applications/com.t3tools.T3Code.desktop",
+          ([path]) => path === "/xdg/applications/com.studyworkspace.Lab.desktop",
         )?.[1];
         assert.include(entry, 'Exec="/opt/T3 Code/t3code" %U');
       }),

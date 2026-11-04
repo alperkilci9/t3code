@@ -1,12 +1,14 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 
 import indexHtml from "../index.html?raw";
+import { STUDYWORKSPACE_THEMES } from "@t3tools/shared/themePalettes";
+import { readAppearanceModePreference, readThemePreference } from "./hooks/useTheme";
 import {
   CUSTOM_THEMES_STORAGE_KEY,
   getDefaultThemeColors,
   getThemeColorsForMode,
+  getThemeModes,
   invalidateCustomThemes,
-  isKnownThemePreference,
   resolveThemeAppearance,
   T3_CHAT_THEME,
   EMBER_THEME,
@@ -109,20 +111,8 @@ function runtimeResolvedAppearance(
   });
   invalidateCustomThemes();
   try {
-    const raw = storage[THEME_STORAGE_KEY] ?? null;
-    const theme = raw !== null && isKnownThemePreference(raw) ? raw : "system";
-    const followRaw = storage[THEME_FOLLOW_SYSTEM_STORAGE_KEY] ?? null;
-    const appearanceRaw = storage[THEME_APPEARANCE_MODE_STORAGE_KEY] ?? null;
-    const appearanceMode =
-      appearanceRaw === "light" || appearanceRaw === "dark" || appearanceRaw === "system"
-        ? appearanceRaw
-        : followRaw === "true"
-          ? "system"
-          : followRaw === "false"
-            ? null
-            : theme === "system"
-              ? "system"
-              : null;
+    const theme = readThemePreference();
+    const appearanceMode = readAppearanceModePreference(theme);
     const followSystem = appearanceMode === "system";
     return resolveThemeAppearance(theme, prefersDark, followSystem, appearanceMode ?? undefined);
   } finally {
@@ -146,6 +136,20 @@ const CHARCOAL_DARK_ONLY = {
 };
 
 describe("index.html boot script", () => {
+  it("starts a new Lab profile in the original monochrome red StudyWorkspace palette", () => {
+    for (const prefersDark of [false, true]) {
+      const boot = runBootScript({ prefersDark });
+      expect(boot.themeId).toBe("study-legacy");
+      expect(boot.isDark).toBe(true);
+      expect(boot.themeSelected).toBe("true");
+      expect(boot.bootVariables).toEqual({
+        "--boot-background": "#050505",
+        "--boot-foreground": "#fafafa",
+        "--boot-accent": "#c73a4a",
+        "--boot-chrome": "#050505",
+      });
+    }
+  });
   const parityCases: ReadonlyArray<{
     name: string;
     storage: Record<string, string>;
@@ -284,9 +288,15 @@ describe("index.html boot script", () => {
   });
 
   it("keeps every built-in boot splash in sync with the real palettes", () => {
-    for (const theme of [T3_CHAT_THEME, GROVE_THEME, OCEAN_THEME, EMBER_THEME, IRIS_THEME]) {
-      expect(theme.appearance).toBe("light");
-      for (const mode of ["light", "dark"] as const) {
+    for (const theme of [
+      T3_CHAT_THEME,
+      GROVE_THEME,
+      OCEAN_THEME,
+      EMBER_THEME,
+      IRIS_THEME,
+      ...STUDYWORKSPACE_THEMES,
+    ]) {
+      for (const mode of getThemeModes(theme)) {
         const colors = getThemeColorsForMode(theme, mode);
         expect(colors).not.toBeNull();
         const boot = runBootScript({
@@ -371,10 +381,10 @@ describe("index.html boot script", () => {
     expect(boot.metaContent).toBe(DEFAULT_DARK_CHROME);
   });
 
-  it("follows the OS appearance when storage is unavailable", () => {
+  it("keeps the Lab default when storage is unavailable", () => {
     const light = runBootScript({ storageThrows: true, prefersDark: false });
-    expect(light.isDark).toBe(false);
-    expect(light.themeId).toBeUndefined();
+    expect(light.isDark).toBe(true);
+    expect(light.themeId).toBe("study-legacy");
 
     const dark = runBootScript({ storageThrows: true, prefersDark: true });
     expect(dark.isDark).toBe(true);

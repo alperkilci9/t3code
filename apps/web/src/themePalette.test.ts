@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 import { converter } from "culori/fn";
-import { BUILT_IN_THEMES } from "@t3tools/shared/themePalettes";
+import { BUILT_IN_THEMES, STUDYWORKSPACE_THEMES } from "@t3tools/shared/themePalettes";
 
 import { CONTEXT_CHIP_ACCENTS, contextChipColorVariable } from "./lib/contextChipAccents";
 
@@ -8,6 +8,7 @@ import {
   applyThemePalette,
   contextChipVariables,
   getThemeColorsForMode,
+  getThemeDefinition,
   getThemeModes,
   getCustomThemes,
   getStandardThemeColors,
@@ -27,6 +28,7 @@ import {
   CUSTOM_THEMES_STORAGE_KEY,
   createVividThemeColors,
   getDefaultThemeColors,
+  themeAllowsSidebarArtwork,
   themeColorToHex,
   toCanonicalThemeColor,
   THEME_FILE_VERSION,
@@ -82,7 +84,10 @@ describe("theme files", () => {
     const palettes = [
       getStandardThemeColors("light"),
       getStandardThemeColors("dark"),
-      ...BUILT_IN_THEMES.flatMap((theme) => [theme.colors, ...Object.values(theme.variants ?? {})]),
+      ...[...BUILT_IN_THEMES, ...STUDYWORKSPACE_THEMES].flatMap((theme) => [
+        theme.colors,
+        ...Object.values(theme.variants ?? {}),
+      ]),
     ];
     for (const colors of palettes) {
       expect(
@@ -702,6 +707,39 @@ describe("context chip colors", () => {
 });
 
 describe("stored theme preferences", () => {
+  it("resolves the source StudyWorkspace presets in their original appearance", () => {
+    const expected = [
+      ["legacy", "Legacy default", "dark", "#050505", "#fafafa", "#c73a4a"],
+      ["crimson", "Crimson Horizon", "dark", "#020306", "#eef1f6", "#c73a4a"],
+      ["graphite", "Graphite", "dark", "#050506", "#eceef2", "#cdd2dc"],
+      ["aurora", "Aurora", "dark", "#010608", "#e4f4f2", "#26c8b4"],
+      ["eclipse", "Eclipse", "dark", "#070504", "#f6eee2", "#e49234"],
+      ["ultra", "Ultraviolet", "dark", "#05030b", "#f0ecfc", "#a052f5"],
+      ["deepsea", "Deep Sea", "dark", "#000000", "#f0edcf", "#40a2d8"],
+      ["brass", "Navy & Brass", "dark", "#0d1830", "#ede8e2", "#fab95b"],
+      ["coral", "Coral Slate", "dark", "#182526", "#eff5f5", "#eb6440"],
+      ["oxblood", "Oxblood & Jade", "dark", "#2a1313", "#eeeeee", "#47a992"],
+      ["paper", "Paper", "light", "#ddd6c9", "#1e1914", "#962232"],
+      ["nordic", "Nordic", "light", "#d4e1e1", "#132440", "#bf092f"],
+      ["cobalt", "Cobalt Cream", "light", "#ebdec5", "#201658", "#1d24ca"],
+      ["frost", "Frost", "light", "#cfdfe5", "#0b2447", "#576cbc"],
+      ["mint", "Mint Violet", "light", "#cae5dd", "#03001c", "#301e67"],
+      ["forest", "Forest Ivory", "light", "#e2e1c4", "#12372a", "#436850"],
+      ["linen", "Linen Ember", "light", "#dfdfd8", "#0c4013", "#b15a21"],
+    ] as const;
+    expect(STUDYWORKSPACE_THEMES).toHaveLength(expected.length);
+    for (const [id, label, appearance, canvas, text, accent] of expected) {
+      const theme = getThemeDefinition(`study-${id}`);
+      expect(theme).toMatchObject({ label, appearance, colors: { canvas, text, accent } });
+      expect(getThemeModes(theme!)).toEqual([appearance]);
+      expect(getThemeColorsForMode(theme!, appearance === "dark" ? "light" : "dark")).toBeNull();
+      expect(themeAllowsSidebarArtwork(`study-${id}`)).toBe(false);
+      expect(contrastRatio(theme!.colors.text, theme!.colors.canvas)).toBeGreaterThanOrEqual(7);
+      expect(
+        contrastRatio(theme!.colors.accentForeground, theme!.colors.accent),
+      ).toBeGreaterThanOrEqual(4.5);
+    }
+  });
   it("lets a configured half unlock an appearance the base theme lacks", () => {
     const lightOnly = parseThemeFile({
       version: THEME_FILE_VERSION,

@@ -122,7 +122,7 @@ function HostedPromptLinkLanding({
 }) {
   const summary = summarize(appPath);
   const [remember, setRemember] = useState(false);
-  const deepLink = promptLinkDeepLink(appPath);
+  const deepLink = promptLinkDeepLink(appPath, "studyworkspace-lab");
   const onPhone = /android|iphone|ipad/i.test(navigator.userAgent);
   const autoOpenedRef = useRef(false);
 
