@@ -14,14 +14,10 @@ export function revealThreadTerminal(threadRef: ScopedThreadRef, terminalId: str
       entry.target.threadRef.environmentId === threadRef.environmentId &&
       entry.target.threadRef.threadId === threadRef.threadId,
   );
-  if (
-    pane &&
-    layout.mode !== "single" &&
-    (typeof window === "undefined" || window.innerWidth > 980)
-  ) {
+  if (layout.mode !== "single" && (typeof window === "undefined" || window.innerWidth > 980)) {
     panels.openTerminal(threadRef, terminalId);
     useTerminalUiStateStore.getState().closeTerminal(threadRef, terminalId);
-    useChatLayoutStore.getState().dispatch({ type: "focus", paneId: pane.id });
+    if (pane) useChatLayoutStore.getState().dispatch({ type: "focus", paneId: pane.id });
     useChatLayoutStore.getState().dispatch({ type: "set-panel-open", open: true });
     focusTerminalOnNavigation(threadRef, terminalId);
     return;

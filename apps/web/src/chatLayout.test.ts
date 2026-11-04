@@ -53,6 +53,52 @@ it("does not reshuffle a grid when focus changes among its leaves", () => {
   const after = reduceChatLayout(before, { type: "focus", paneId: "A" });
   expect(after.grid).toEqual(before.grid);
   expect(selectGridPaneIds(after)[0]).toBe("A");
+
+  let five = open(["A", "B", "C", "D", "E"]);
+  if (five.grid?.kind !== "split") throw new Error("expected split");
+  five = reduceChatLayout(five, {
+    type: "resize-split",
+    splitId: five.grid.id,
+    ratio: 0.63,
+    extent: 1200,
+  });
+  const saved = five.grid;
+  five = reduceChatLayout(five, { type: "set-mode", mode: "grid" });
+  five = reduceChatLayout(five, { type: "set-mode", mode: "columns" });
+  five = reduceChatLayout(five, { type: "focus", paneId: "A" });
+  five = reduceChatLayout(five, { type: "set-mode", mode: "grid" });
+  expect(five.grid).toEqual(
+    JSON.parse(JSON.stringify(saved).replace('"paneId":"B"', '"paneId":"A"')),
+  );
+  five = reduceChatLayout(five, { type: "set-mode", mode: "columns" });
+  const beforeAppend = five.grid;
+  five = reduceChatLayout(five, { type: "open", pane: pane("F"), placement: { kind: "append" } });
+  expect(five.grid).toEqual(
+    JSON.parse(JSON.stringify(beforeAppend).replace('"paneId":"C"', '"paneId":"F"')),
+  );
+});
+
+it("promotes an inactive pane without changing focus or recency", () => {
+  const before = open(["A", "B"], "grid");
+  const after = reduceChatLayout(before, {
+    type: "replace",
+    paneId: "A",
+    target: pane("promoted-A").target,
+    focus: false,
+  });
+  expect(after.panes[0]?.target).toEqual(pane("promoted-A").target);
+  expect(after.focusedPaneId).toBe("B");
+  expect(after.recentPaneIds).toEqual(before.recentPaneIds);
+  expect(after.grid).toEqual(before.grid);
+  const duplicateBefore = open(["A", "C", "B"], "grid");
+  const duplicate = reduceChatLayout(duplicateBefore, {
+    type: "replace",
+    paneId: "B",
+    target: pane("A").target,
+    focus: false,
+  });
+  expect(duplicate.panes.map((pane) => pane.id)).toEqual(["A", "C"]);
+  expect(duplicate.focusedPaneId).toBe("A");
 });
 it("caps Grid additions but permits replacement without deleting threads", () => {
   const before = open(["A", "B", "C", "D"], "grid");

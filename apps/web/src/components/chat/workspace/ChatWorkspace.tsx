@@ -9,9 +9,11 @@ import { useNavigate } from "@tanstack/react-router";
 import type { ChatComposerHandle } from "../ChatComposer";
 import { useStableCallback } from "../../../hooks/useStableCallback";
 import { requestWorkspaceFocus } from "../../../lib/workspaceFocus";
+import { revealChatColumn } from "../../../lib/revealChatColumn";
 import { randomUUID } from "../../../lib/utils";
 import { targetKey, type PaneId } from "../../../chatLayout";
 import { useChatLayoutStore } from "../../../chatLayoutStore";
+import { useRightPanelStore } from "../../../rightPanelStore";
 import { useComposerHandleContext, type ComposerHandleRef } from "../../../composerHandleContext";
 import { buildThreadRouteParams, type ThreadRouteTarget } from "../../../threadRoutes";
 import { ThreadRouteView } from "../../ThreadRouteView";
@@ -34,6 +36,7 @@ export function ChatWorkspace({
 }) {
   const layout = useChatLayoutStore((state) => state.layout);
   const width = useSyncExternalStore(subscribeWidth, () => window.innerWidth);
+  const split = layout.mode !== "single" && width > 980;
   const navigate = useNavigate();
   const parentComposer = useComposerHandleContext();
   const [handles] = useState(() => new Map<PaneId, ComposerHandleRef>());
@@ -42,6 +45,9 @@ export function ChatWorkspace({
   const [workspaceElement, setWorkspaceElement] = useState<HTMLDivElement | null>(null);
   const lastRoute = useRef<string | null>(null);
   const routeKey = targetKey(target);
+  const reveal = useStableCallback((id: PaneId | null) => {
+    if (id && workspaceElement) revealChatColumn(id, workspaceElement);
+  });
   const follow = useStableCallback((next: ThreadRouteTarget) => {
     void (next.kind === "server"
       ? navigate({
@@ -55,6 +61,7 @@ export function ChatWorkspace({
     const state = useChatLayoutStore.getState();
     const pane = state.layout.panes.find((p) => p.id === id);
     if (!pane) return;
+    reveal(id);
     if (state.layout.focusedPaneId === id) {
       if (lastRoute.current !== targetKey(pane.target)) {
         lastRoute.current = targetKey(pane.target);
@@ -66,6 +73,29 @@ export function ChatWorkspace({
     lastRoute.current = targetKey(pane.target);
     follow(pane.target);
   });
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- split surfaces reuse the thread panel store while Single retains its independent visibility choice
+  useLayoutEffect(() => {
+    if (!split) return;
+    let restoring = false;
+    return useRightPanelStore.subscribe((next, previous) => {
+      if (restoring) return;
+      const changed = Object.entries(next.byThreadKey).filter(
+        ([key, value]) => value.isOpen !== (previous.byThreadKey[key]?.isOpen ?? false),
+      );
+      if (!changed.length) return;
+      const byThreadKey = { ...next.byThreadKey };
+      for (const [key, value] of changed)
+        byThreadKey[key] = { ...value, isOpen: previous.byThreadKey[key]?.isOpen ?? false };
+      restoring = true;
+      try {
+        useRightPanelStore.setState({ byThreadKey });
+      } catch (error) {
+        restoring = false;
+        throw error;
+      }
+      restoring = false;
+    });
+  }, [split]);
   const close = useStableCallback((id: PaneId) => {
     const state = useChatLayoutStore.getState();
     const wasFocused = state.layout.focusedPaneId === id;
@@ -95,8 +125,13 @@ export function ChatWorkspace({
         placement: { kind: "append" },
       });
   }, [background, routeKey, target]);
-  if (layout.mode === "single" || width <= 980)
-    return <ThreadRouteView target={target} background={background} />;
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- reveals the destination after route changes or newly mounted Columns panes without moving keyboard focus
+  useLayoutEffect(() => {
+    if (background || layout.mode !== "columns" || !workspaceElement) return;
+    const pane = layout.panes.find((pane) => pane.id === layout.focusedPaneId);
+    if (pane && targetKey(pane.target) === routeKey) revealChatColumn(pane.id, workspaceElement);
+  }, [background, layout.focusedPaneId, layout.mode, layout.panes, routeKey, workspaceElement]);
+  if (!split) return <ThreadRouteView target={target} background={background} />;
   return (
     <SidebarInset className="h-svh min-h-0 overflow-hidden md:h-dvh" inert={background}>
       <FocusedComposerBridge targetRef={parentComposer} handles={handles} />

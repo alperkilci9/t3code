@@ -48,10 +48,14 @@ export function ChatPane({
       onClose(pane.id);
       return;
     }
-    const current = useChatLayoutStore.getState().layout.panes.find((p) => p.id === pane.id);
+    const layout = useChatLayoutStore.getState().layout;
+    const current = layout.panes.find((p) => p.id === pane.id);
     if (!current || targetKey(current.target) === targetKey(target)) return;
-    useChatLayoutStore.getState().dispatch({ type: "replace", paneId: pane.id, target });
-    if (useChatLayoutStore.getState().layout.focusedPaneId === pane.id) onFocus(pane.id);
+    useChatLayoutStore
+      .getState()
+      .dispatch({ type: "replace", paneId: pane.id, target, focus: false });
+    const focused = useChatLayoutStore.getState().layout.focusedPaneId;
+    if (layout.focusedPaneId === pane.id && focused) onFocus(focused);
   });
   return (
     <section

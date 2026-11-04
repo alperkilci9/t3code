@@ -80,4 +80,18 @@ it("reveals a terminal in the shared split panel instead of an invisible drawer"
       threadRef,
     ).terminalOpen,
   ).toBe(false);
+
+  useChatLayoutStore.getState().dispatch({ type: "set-panel-open", open: false });
+  revealThreadTerminal(remoteRef, "not-open-yet");
+  expect(useChatLayoutStore.getState().layout.splitPanelOpen).toBe(true);
+  expect(
+    selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, remoteRef).surfaces,
+  ).toEqual([expect.objectContaining({ kind: "terminal", activeTerminalId: "not-open-yet" })]);
+  expect(
+    selectThreadTerminalUiState(
+      useTerminalUiStateStore.getState().terminalUiStateByThreadKey,
+      remoteRef,
+    ).terminalOpen,
+  ).toBe(false);
+  expect(useChatLayoutStore.getState().layout.focusedPaneId).toBe("pane");
 });

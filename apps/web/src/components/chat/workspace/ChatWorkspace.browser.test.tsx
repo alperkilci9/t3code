@@ -10,13 +10,15 @@ import { AppRoot } from "~/AppRoot";
 // takes 6-11s; importing it here keeps that out of the test's timeout.
 import "~/components/ChatView";
 import { useChatLayoutStore } from "~/chatLayoutStore";
-import { useRightPanelStore } from "~/rightPanelStore";
+import { selectThreadRightPanelState, useRightPanelStore } from "~/rightPanelStore";
+import { DraftId, useComposerDraftStore } from "~/composerDraftStore";
 import { initialChatLayout } from "~/chatLayout";
-import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { __setClientSettingsForTests } from "~/hooks/useSettings";
 import { getRouter } from "~/router";
 import {
   ENVIRONMENT_ID,
+  PROJECT_ID,
   installFakeEnvironment,
   threadWithHistory,
   type FakeDriver,
@@ -92,6 +94,20 @@ it("keeps real chat composers independent when switching pane focus", async () =
   await userEvent.click(panel);
   await expect.element(panel).toHaveAttribute("aria-pressed", "true");
   await userEvent.click(page.getByRole("button", { name: "Close panel", exact: true }));
+  await userEvent.click(page.getByRole("button", { name: "Single", exact: true }));
+  await vi.waitFor(() =>
+    expect(document.querySelectorAll('[data-testid="composer-editor"]')).toHaveLength(1),
+  );
+  expect(
+    selectThreadRightPanelState(
+      useRightPanelStore.getState().byThreadKey,
+      scopeThreadRef(ENVIRONMENT_ID, ThreadId.make("pane-a")),
+    ).isOpen,
+  ).toBe(false);
+  await userEvent.click(page.getByRole("button", { name: "Grid", exact: true }));
+  await vi.waitFor(() =>
+    expect(document.querySelectorAll('[data-testid="composer-editor"]')).toHaveLength(2),
+  );
   useRightPanelStore
     .getState()
     .open(scopeThreadRef(ENVIRONMENT_ID, ThreadId.make("pane-a")), "files");
@@ -133,4 +149,31 @@ it("keeps real chat composers independent when switching pane focus", async () =
         JSON.stringify(request.input).includes("pane-a"),
     ),
   ).toEqual([]);
+
+  const draftId = DraftId.make("background-pane-a");
+  {
+    useComposerDraftStore
+      .getState()
+      .setProjectDraftThreadId(scopeProjectRef(ENVIRONMENT_ID, PROJECT_ID), draftId, {
+        threadId: ThreadId.make("pane-a"),
+      });
+    useChatLayoutStore
+      .getState()
+      .dispatch({ type: "replace", paneId: "pane-a", target: { kind: "draft", draftId } });
+    useChatLayoutStore.getState().dispatch({ type: "focus", paneId: "pane-b" });
+  }
+  await expect
+    .element(page.getByRole("region", { name: "Chat pane New chat", exact: true }))
+    .toBeVisible();
+  useComposerDraftStore
+    .getState()
+    .markDraftThreadPromoting(draftId, scopeThreadRef(ENVIRONMENT_ID, ThreadId.make("pane-a")));
+  useComposerDraftStore.getState().finalizePromotedDraftThread(draftId);
+  await vi.waitFor(() =>
+    expect(
+      useChatLayoutStore.getState().layout.panes.find((pane) => pane.id === "pane-a")?.target.kind,
+    ).toBe("server"),
+  );
+  expect(useChatLayoutStore.getState().layout.focusedPaneId).toBe("pane-b");
+  expect(router.state.location.pathname).toBe(`/${ENVIRONMENT_ID}/pane-b`);
 });

@@ -1,4 +1,6 @@
 import { ThreadContextUsage } from "../chat/ThreadContextUsage";
+import { useChatLayoutStore } from "../../chatLayoutStore";
+import { revealChatColumn } from "../../lib/revealChatColumn";
 import { useThreadCompletionStore } from "../../threadCompletionStore";
 import { ThreadHoverCard, ThreadHoverCardPopup } from "../ThreadHoverCard";
 import { ThreadTerminalStatusButton } from "../ThreadStatusIndicators";
@@ -825,9 +827,28 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     />
   );
 
+  const revealRouteColumn = () => {
+    if (!props.isRouteThread) return;
+    const pane = useChatLayoutStore
+      .getState()
+      .layout.panes.find(
+        (pane) =>
+          pane.target.kind === "server" && scopedThreadKey(pane.target.threadRef) === threadKey,
+      );
+    if (pane) revealChatColumn(pane.id);
+  };
   const handleClick = (event: ReactMouseEvent) => {
     useThreadCompletionStore.getState().acknowledge(threadKey);
     onThreadClick(event, threadRef);
+    if (
+      !event.defaultPrevented &&
+      !event.metaKey &&
+      !event.ctrlKey &&
+      !event.shiftKey &&
+      !event.altKey &&
+      event.detail <= 1
+    )
+      revealRouteColumn();
   };
   const handleAcknowledgeWokeClick = (event: ReactMouseEvent) => {
     event.preventDefault();
@@ -853,6 +874,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     if (event.key !== "Enter" && event.key !== " ") return;
     event.preventDefault();
     useThreadCompletionStore.getState().acknowledge(threadKey);
+    revealRouteColumn();
     onThreadActivate(threadRef);
   };
   const handleDoubleClick = (event: ReactMouseEvent) => {

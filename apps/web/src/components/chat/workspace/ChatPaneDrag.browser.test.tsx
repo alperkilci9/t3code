@@ -166,6 +166,31 @@ it("drags a sidebar thread to a pane edge and cancels a later drag", async () =>
   }
   expect(useChatLayoutStore.getState().layout.panes).toHaveLength(5);
   expect(document.querySelectorAll("[data-chat-pane]")).toHaveLength(5);
+  await vi.waitFor(() => {
+    const canvas = document
+      .querySelector<HTMLElement>("[data-chat-pane-canvas]")!
+      .getBoundingClientRect();
+    const focused = document
+      .querySelector<HTMLElement>('[data-chat-pane-focused="true"]')!
+      .getBoundingClientRect();
+    expect(focused.left).toBeGreaterThanOrEqual(canvas.left);
+    expect(focused.right).toBeLessThanOrEqual(canvas.right);
+  });
+  document.querySelector<HTMLElement>("[data-chat-pane-canvas]")!.scrollLeft = 0;
+  const lastRow = [...document.querySelectorAll<HTMLElement>("[data-sidebar-row]")].find(
+    (element) => element.textContent?.includes("Thread drag-e"),
+  )!;
+  await userEvent.click(lastRow);
+  await vi.waitFor(() => {
+    const canvas = document
+      .querySelector<HTMLElement>("[data-chat-pane-canvas]")!
+      .getBoundingClientRect();
+    const focused = document
+      .querySelector<HTMLElement>('[data-chat-pane-focused="true"]')!
+      .getBoundingClientRect();
+    expect(focused.left).toBeGreaterThanOrEqual(canvas.left);
+    expect(focused.right).toBeLessThanOrEqual(canvas.right);
+  });
   await userEvent.click(page.getByRole("button", { name: "Grid", exact: true }));
   await vi.waitFor(() => expect(document.querySelectorAll("[data-chat-pane]")).toHaveLength(4));
   const savedGrid = useChatLayoutStore.getState().layout.grid;

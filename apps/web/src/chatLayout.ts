@@ -33,7 +33,7 @@ export type ChatLayoutAction =
   | { type: "set-mode"; mode: ChatViewMode }
   | { type: "focus"; paneId: PaneId }
   | { type: "open"; pane: ChatPane; placement: ChatPanePlacement }
-  | { type: "replace"; paneId: PaneId; target: ThreadRouteTarget }
+  | { type: "replace"; paneId: PaneId; target: ThreadRouteTarget; focus?: boolean }
   | { type: "close"; paneId: PaneId }
   | { type: "resize-split"; splitId: string; ratio: number; extent: number }
   | { type: "resize-column"; paneId: PaneId; width: number }
@@ -97,7 +97,17 @@ const treeIds = (tree: ChatSplit | null): string[] =>
       : [...treeIds(tree.first), ...treeIds(tree.second)];
 function reconcile(layout: ChatLayout): ChatLayout {
   const selected = new Set(selectGridPaneIds(layout));
-  const grid = prune(layout.grid, selected);
+  const previous = new Set(treeIds(layout.grid));
+  const incoming = layout.panes.filter((pane) => selected.has(pane.id) && !previous.has(pane.id));
+  let nextIncoming = 0;
+  const filled = incoming.length
+    ? mapSplit(layout.grid, (node) => {
+        if (node.kind !== "leaf" || selected.has(node.paneId)) return node;
+        const replacement = incoming[nextIncoming++];
+        return replacement ? leaf(replacement.id) : node;
+      })
+    : layout.grid;
+  const grid = prune(filled, selected);
   if (treeIds(grid).length === selected.size)
     return grid === layout.grid ? layout : { ...layout, grid };
   return {
@@ -144,16 +154,23 @@ export function reduceChatLayout(layout: ChatLayout, action: ChatLayoutAction): 
           });
     case "replace": {
       const existing = layout.panes.find((p) => targetKey(p.target) === targetKey(action.target));
-      if (existing) return reduceChatLayout(layout, { type: "focus", paneId: existing.id });
-      return reduceChatLayout(
-        {
-          ...layout,
-          panes: layout.panes.map((p) =>
-            p.id === action.paneId ? { ...p, target: action.target } : p,
-          ),
-        },
-        { type: "focus", paneId: action.paneId },
-      );
+      if (existing) {
+        if (action.focus !== false)
+          return reduceChatLayout(layout, { type: "focus", paneId: existing.id });
+        if (existing.id === action.paneId) return layout;
+        const closed = reduceChatLayout(layout, { type: "close", paneId: action.paneId });
+        return layout.focusedPaneId === action.paneId
+          ? reduceChatLayout(closed, { type: "focus", paneId: existing.id })
+          : closed;
+      }
+      const replaced = {
+        ...layout,
+        panes: layout.panes.map((p) =>
+          p.id === action.paneId ? { ...p, target: action.target } : p,
+        ),
+      };
+      if (action.focus === false) return replaced;
+      return reduceChatLayout(replaced, { type: "focus", paneId: action.paneId });
     }
     case "open": {
       const existing = layout.panes.find(
@@ -192,7 +209,7 @@ export function reduceChatLayout(layout: ChatLayout, action: ChatLayoutAction): 
                 )
             : node,
         );
-      } else grid = null;
+      } else if (treeIds(grid).length < 4) grid = null;
       return reduceChatLayout(
         { ...layout, panes, grid, columnWidths: { ...layout.columnWidths, [action.pane.id]: 480 } },
         { type: "focus", paneId: action.pane.id },
