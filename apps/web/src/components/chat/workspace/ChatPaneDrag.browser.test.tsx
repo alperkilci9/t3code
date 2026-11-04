@@ -152,15 +152,12 @@ it("drags a sidebar thread to a pane edge and cancels a later drag", async () =>
     )!;
     row.scrollIntoView({ block: "nearest" });
     const from = row.getBoundingClientRect();
-    const toolbar = document
-      .querySelector<HTMLElement>('[aria-label="Chat view mode"]')!
-      .parentElement!.getBoundingClientRect();
     const canvas = document.querySelector("[data-chat-pane-canvas]")!.getBoundingClientRect();
     const lastColumn = [...document.querySelectorAll("[data-pane-viewport]")]
       .at(-1)!
       .getBoundingClientRect();
-    const appendX = id === "drag-c" ? (lastColumn.right + canvas.right) / 2 : toolbar.left + 30,
-      appendY = id === "drag-c" ? canvas.top + canvas.height / 2 : toolbar.top + 14;
+    const appendX = id === "drag-c" ? (lastColumn.right + canvas.right) / 2 : canvas.right - 8,
+      appendY = canvas.top + canvas.height / 2;
     if (id === "drag-c") expect(lastColumn.right).toBeLessThan(canvas.right);
     await act(() => {
       row.dispatchEvent(pointer("pointerdown", from.left + 40, from.top + from.height / 2));

@@ -127,7 +127,7 @@ export function ChatPaneLayouts({
   if (layout.mode === "grid" && layout.grid) {
     const minimum = minimumChatSplitSize(layout.grid);
     return (
-      <div className="min-h-0 min-w-0 flex-1 overflow-auto p-1" data-chat-pane-canvas>
+      <div className="min-h-0 min-w-0 flex-1 overflow-auto" data-chat-pane-canvas>
         <div className="grid h-full" style={{ minWidth: minimum.width, minHeight: minimum.height }}>
           <GridNode node={layout.grid} layout={layout} renderPane={renderPane} />
         </div>
@@ -137,7 +137,7 @@ export function ChatPaneLayouts({
   return (
     <div
       ref={setRoot}
-      className="flex min-h-0 min-w-0 flex-1 gap-1 overflow-x-auto p-1"
+      className="flex min-h-0 min-w-0 flex-1 gap-1 overflow-x-auto"
       data-chat-pane-canvas
     >
       {layout.panes.map((pane) => (

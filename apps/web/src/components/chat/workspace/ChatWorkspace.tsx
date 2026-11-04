@@ -5,6 +5,7 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
+import { createPortal } from "react-dom";
 import { useNavigate } from "@tanstack/react-router";
 import type { ChatComposerHandle } from "../ChatComposer";
 import { useStableCallback } from "../../../hooks/useStableCallback";
@@ -43,6 +44,13 @@ export function ChatWorkspace({
   const [panelHost, setPanelHost] = useState<HTMLDivElement | null>(null);
   const [controlsHost, setControlsHost] = useState<HTMLDivElement | null>(null);
   const [workspaceElement, setWorkspaceElement] = useState<HTMLDivElement | null>(null);
+  const [toolbarHost, setToolbarHost] = useState<HTMLElement | null>(null);
+  const attachWorkspace = useStableCallback((element: HTMLDivElement | null) => {
+    setWorkspaceElement(element);
+    setToolbarHost(
+      element ? document.querySelector<HTMLElement>('[data-slot="sidebar-footer"]') : null,
+    );
+  });
   const lastRoute = useRef<string | null>(null);
   const routeKey = targetKey(target);
   const reveal = useStableCallback((id: PaneId | null) => {
@@ -135,11 +143,20 @@ export function ChatWorkspace({
   return (
     <SidebarInset className="h-svh min-h-0 overflow-hidden md:h-dvh" inert={background}>
       <FocusedComposerBridge targetRef={parentComposer} handles={handles} />
-      <div ref={setWorkspaceElement} className="flex min-h-0 flex-1 flex-col bg-background">
-        <div className="flex h-[var(--workspace-topbar-height)] shrink-0 items-center justify-end gap-2 px-3">
-          <ChatViewModeControl />
-          <div ref={setControlsHost} />
-        </div>
+      <div
+        ref={attachWorkspace}
+        data-chat-workspace
+        className="flex min-h-0 flex-1 flex-col bg-background"
+      >
+        {!background && toolbarHost
+          ? createPortal(
+              <div className="flex flex-col items-center gap-1 border-t border-sidebar-border pt-2">
+                <ChatViewModeControl />
+                <div ref={setControlsHost} />
+              </div>,
+              toolbarHost,
+            )
+          : null}
         <ChatPaneDropTargets root={workspaceElement} onFocus={focus} />
         <div className="relative flex min-h-0 flex-1">
           <ChatPaneLayouts

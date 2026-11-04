@@ -81,13 +81,6 @@ export function ChatPaneDropTargets({
     focused?.kind === "server" ? focused.threadRef.environmentId : draft?.environmentId;
   if (!ghost || !root || !environmentId || layout.mode === "single") return null;
   const zones: { rect: DropRect; drop: ChatPaneDrop }[] = [];
-  if (canApplyChatPaneDrop(layout, { kind: "append" })) {
-    const rect = root.getBoundingClientRect();
-    zones.push({
-      rect: { left: rect.left, right: rect.right, top: rect.top, bottom: rect.top + 28 },
-      drop: { kind: "append" },
-    });
-  }
   for (const element of root.querySelectorAll<HTMLElement>("[data-pane-drop-id]")) {
     const paneId = element.dataset.paneDropId!,
       rect = element.getBoundingClientRect();
@@ -153,6 +146,15 @@ export function ChatPaneDropTargets({
         bottom: canvas.bottom,
       },
     });
+    zones.push({
+      drop: { kind: "append" },
+      rect: {
+        left: canvas.right - 24,
+        right: canvas.right,
+        top: canvas.top,
+        bottom: canvas.bottom,
+      },
+    });
   }
   const geometry: ChatPaneDropGeometry = {
     mode: layout.mode,
@@ -181,7 +183,12 @@ export function ChatPaneDropTargets({
         { x: (rect.left + rect.right) / 2, y: (rect.top + rect.bottom) / 2 },
         geometry,
       );
-      const drop = resolved && canApplyChatPaneDrop(layout, resolved) ? resolved : zone.drop;
+      const drop =
+        zone.drop.kind === "append"
+          ? zone.drop
+          : resolved && canApplyChatPaneDrop(layout, resolved)
+            ? resolved
+            : zone.drop;
       return (
         <DropZone
           key={`${JSON.stringify(zone.drop)}:${zone.rect.left}:${zone.rect.top}`}
