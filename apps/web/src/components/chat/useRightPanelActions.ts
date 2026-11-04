@@ -7,7 +7,8 @@ import { resolveExplicitDiffOpenOnActivate } from "../ChatView.logic";
 import { useStableCallback } from "../../hooks/useStableCallback";
 import { type ScopedThreadRef, type RunId } from "@t3tools/contracts";
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
-import { useEffect } from "react";
+import { ChatPaneContext, isChatPaneEventOwner } from "./workspace/ChatPaneContext";
+import { use, useEffect } from "react";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
@@ -69,6 +70,7 @@ interface RightPanelActionsInput {
  * requests, device, and terminal tabs.
  */
 export function useRightPanelActions(input: RightPanelActionsInput) {
+  const pane = use(ChatPaneContext);
   const {
     closeRightPanelSurface,
     activeThreadRef,
@@ -99,6 +101,7 @@ export function useRightPanelActions(input: RightPanelActionsInput) {
 
   const openPreview = useAtomCommand(previewEnvironment.open, { reportFailure: false });
   const onToggleDiff = () => {
+    if (!embedded) pane?.requestPanel(!diffOpen || !rightPanelOpen);
     if (!isServerThread) {
       return;
     }
@@ -111,6 +114,7 @@ export function useRightPanelActions(input: RightPanelActionsInput) {
   };
   const onToggleDiffStable = useStableCallback(onToggleDiff);
   const createBrowserSurface = (profileId?: string) => {
+    if (!embedded) pane?.requestPanel(true);
     if (!activeThreadRef || !canOperatePreview) return;
     void addBrowserSurface({
       threadRef: activeThreadRef,
@@ -132,6 +136,7 @@ export function useRightPanelActions(input: RightPanelActionsInput) {
   };
   const createBrowserSurfaceStable = useStableCallback(createBrowserSurface);
   const addDiffSurface = () => {
+    if (!embedded) pane?.requestPanel(true);
     if (!activeThreadRef || !isServerThread || !isGitRepo) return;
     useDiffPanelStore.getState().selectGitScope(activeThreadRef, "branch");
     useRightPanelStore.getState().open(activeThreadRef, "diff");
@@ -143,16 +148,19 @@ export function useRightPanelActions(input: RightPanelActionsInput) {
   };
   const openChangesFromThreadPanelStable = useStableCallback(openChangesFromThreadPanel);
   const addFilesSurface = () => {
+    if (!embedded) pane?.requestPanel(true);
     if (!activeThreadRef || !activeProject) return;
     useRightPanelStore.getState().open(activeThreadRef, "files");
   };
   const addFilesSurfaceStable = useStableCallback(addFilesSurface);
   const addPullRequestsSurface = () => {
+    if (!embedded) pane?.requestPanel(true);
     if (!activeThreadRef || !pullRequestsSurfaceAvailable) return;
     useRightPanelStore.getState().open(activeThreadRef, "pull-requests");
   };
   const addPullRequestsSurfaceStable = useStableCallback(addPullRequestsSurface);
   const addDeviceSurface = () => {
+    if (!embedded) pane?.requestPanel(true);
     if (!activeThreadRef) return;
     if (!deviceState.onboardingCompleted || deviceState.hostStatus === "disabled") {
       openDeviceSetupDialog(scopedThreadKey(activeThreadRef));
@@ -162,11 +170,16 @@ export function useRightPanelActions(input: RightPanelActionsInput) {
   };
   const addDeviceSurfaceStable = useStableCallback(addDeviceSurface);
   const openFileSurface = (relativePath: string) => {
+    if (!embedded) pane?.requestPanel(true);
     if (!activeThreadRef || !activeProject) return;
     useRightPanelStore.getState().openFile(activeThreadRef, relativePath);
   };
   const openFileSurfaceStable = useStableCallback(openFileSurface);
   const closePreviewPanel = () => {
+    if (pane && !embedded) {
+      pane.requestPanel(false);
+      return;
+    }
     if (activeThreadRef) {
       if (activeRightPanelSurface?.kind === "preview" && activeRightPanelSurface.resourceId) {
         usePreviewMiniPlayerStore
@@ -219,6 +232,10 @@ export function useRightPanelActions(input: RightPanelActionsInput) {
   };
   const activateRightPanelSurfaceStable = useStableCallback(activateRightPanelSurface);
   const toggleRightPanel = () => {
+    if (pane && !embedded) {
+      pane.requestPanel(!rightPanelOpen);
+      return;
+    }
     if (!activeThreadRef) return;
     if (rightPanelOpen) {
       closePreviewPanel();
@@ -292,12 +309,14 @@ export function useRightPanelActions(input: RightPanelActionsInput) {
   };
   const copyRightPanelFilePathStable = useStableCallback(copyRightPanelFilePath);
   const addPullRequestSurface = () => {
+    if (!embedded) pane?.requestPanel(true);
     if (!supportsPullRequests || activeThreadRef === null || pullRequestPanelTarget === null)
       return;
     useRightPanelStore.getState().openPullRequest(activeThreadRef, pullRequestPanelTarget);
   };
   const addPullRequestSurfaceStable = useStableCallback(addPullRequestSurface);
   const onOpenTurnDiff = (runId: RunId, filePath?: string) => {
+    if (!embedded) pane?.requestPanel(true);
     if (!isServerThread || !activeThreadRef) return;
     const diffOpen =
       selectActiveRightPanel(useRightPanelStore.getState().byThreadKey, activeThreadRef) === "diff";
@@ -307,6 +326,7 @@ export function useRightPanelActions(input: RightPanelActionsInput) {
     onDiffPanelOpen?.();
   };
   const onOpenToolDiffStable = useStableCallback((target: ToolCallDiffTarget) => {
+    if (!embedded) pane?.requestPanel(true);
     if (!isServerThread || !activeThreadRef) return;
     const diffOpen =
       selectActiveRightPanel(useRightPanelStore.getState().byThreadKey, activeThreadRef) === "diff";
@@ -322,9 +342,10 @@ export function useRightPanelActions(input: RightPanelActionsInput) {
       embedded
         ? undefined
         : subscribePreviewAction((action) => {
+            if (!isChatPaneEventOwner(pane?.paneId, document.activeElement)) return;
             if (action === "toggle-panel") togglePreviewPanelStable();
           }),
-    [embedded, togglePreviewPanelStable],
+    [embedded, pane?.paneId, togglePreviewPanelStable],
   );
 
   const shortcuts = {

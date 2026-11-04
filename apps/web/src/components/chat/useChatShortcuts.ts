@@ -1,3 +1,4 @@
+import { isChatPaneEventOwner } from "./workspace/ChatPaneContext";
 import type { KeybindingCommand, ResolvedKeybindingsConfig } from "@t3tools/contracts";
 import { useEffect, useEffectEvent } from "react";
 import { isCommandPaletteOpen } from "../../commandPaletteBus";
@@ -24,6 +25,7 @@ export type ChatShortcutCommands = Partial<Record<KeybindingCommand, ChatShortcu
 
 interface ChatShortcutsInput {
   readonly enabled: boolean;
+  readonly paneId?: string | undefined;
   /**
    * A side chat inside another chat leaves the window to the outer chat. It runs only
    * composer chords, for keys pressed inside `composerElement`.
@@ -54,6 +56,7 @@ export function useChatShortcuts(input: ChatShortcutsInput) {
   const embedded = input.embedded === true;
   const composerElement = embedded ? (input.composerElement ?? null) : null;
   const handleShortcut = useEffectEvent((event: KeyboardEvent) => {
+    if (!isChatPaneEventOwner(input.paneId, event.target)) return;
     const { keybindings } = input;
     if (preventRepeatedTerminalCloseShortcut(event, keybindings)) {
       event.stopPropagation();
@@ -93,6 +96,7 @@ export function useChatShortcuts(input: ChatShortcutsInput) {
     event.stopPropagation();
   });
   const dismissFind = useEffectEvent((event: KeyboardEvent) => {
+    if (!isChatPaneEventOwner(input.paneId, event.target)) return;
     if (
       event.key !== "Escape" ||
       !input.threadFindActive ||

@@ -16,7 +16,16 @@ const threadVisitTracker = createThreadVisitTracker({
 // The visit watermark is the one part of the chat view that follows the
 // shell's updatedAt, which ticks while a run streams. The tracker subscribes to
 // it outside React, so ChatView keeps reading the quiet shell.
-export function ThreadVisitWatermark(props: { readonly threadRef: ScopedThreadRef }) {
+export function ThreadVisitWatermark(props: {
+  readonly threadRef: ScopedThreadRef;
+  readonly enabled?: boolean;
+}) {
+  return props.enabled === false ? null : (
+    <ActiveThreadVisitWatermark threadRef={props.threadRef} />
+  );
+}
+
+function ActiveThreadVisitWatermark(props: { readonly threadRef: ScopedThreadRef }) {
   useAtomMount(threadVisitTracker(props.threadRef));
   return null;
 }

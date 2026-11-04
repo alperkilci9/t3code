@@ -2,6 +2,8 @@ import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { beforeEach, expect, it } from "vite-plus/test";
 
+import { initialChatLayout } from "../chatLayout";
+import { useChatLayoutStore } from "../chatLayoutStore";
 import { selectThreadRightPanelState, useRightPanelStore } from "../rightPanelStore";
 import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../terminalUiStateStore";
 import { revealThreadTerminal } from "./revealThreadTerminal";
@@ -10,6 +12,7 @@ const threadRef = scopeThreadRef(EnvironmentId.make("local"), ThreadId.make("set
 const remoteRef = scopeThreadRef(EnvironmentId.make("remote"), threadRef.threadId);
 
 beforeEach(() => {
+  useChatLayoutStore.setState({ layout: initialChatLayout() });
   useTerminalUiStateStore.setState({
     terminalUiStateByThreadKey: {},
     suppressedTerminalIdsByThreadKey: {},
@@ -55,4 +58,26 @@ it("reveals terminals in their own environment without changing another environm
   const state = useTerminalUiStateStore.getState().terminalUiStateByThreadKey;
   expect(selectThreadTerminalUiState(state, threadRef).terminalIds).toEqual(["default"]);
   expect(selectThreadTerminalUiState(state, remoteRef).terminalIds).toEqual(["setup-install"]);
+});
+
+it("reveals a terminal in the shared split panel instead of an invisible drawer", () => {
+  useChatLayoutStore.setState({
+    layout: {
+      ...initialChatLayout(),
+      mode: "grid",
+      panes: [{ id: "pane", target: { kind: "server", threadRef } }],
+      focusedPaneId: "pane",
+    },
+  });
+  revealThreadTerminal(threadRef, "from-status");
+  expect(useChatLayoutStore.getState().layout.splitPanelOpen).toBe(true);
+  expect(
+    selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, threadRef).surfaces,
+  ).toEqual([expect.objectContaining({ kind: "terminal", activeTerminalId: "from-status" })]);
+  expect(
+    selectThreadTerminalUiState(
+      useTerminalUiStateStore.getState().terminalUiStateByThreadKey,
+      threadRef,
+    ).terminalOpen,
+  ).toBe(false);
 });

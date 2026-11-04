@@ -31,12 +31,39 @@ import {
  * promotion runs in the draft store; this only follows the redirect it leaves behind.
  * `background` keeps the thread mounted, inert and in place under Settings or Usage.
  */
+type PaneRouteHost = { onRedirect: (target: ThreadRouteTarget | null) => void };
+
+function ThreadRouteRedirect({
+  paneHost,
+  target,
+}: {
+  paneHost?: PaneRouteHost | undefined;
+  target: ThreadRouteTarget | null;
+}) {
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- reports a route redirect to its pane host instead of navigating unrelated panes
+  useEffect(() => {
+    if (paneHost) paneHost.onRedirect(target);
+  }, [paneHost, target]);
+  if (paneHost) return null;
+  return target?.kind === "server" ? (
+    <Navigate
+      to="/$environmentId/$threadId"
+      params={buildThreadRouteParams(target.threadRef)}
+      replace
+    />
+  ) : (
+    <Navigate to="/" replace />
+  );
+}
+
 export function ThreadRouteView({
   target,
   background = false,
+  paneHost,
 }: {
   target: ThreadRouteTarget;
   background?: boolean;
+  paneHost?: PaneRouteHost | undefined;
 }) {
   const navigate = useNavigate();
   const draftId = target.kind === "draft" ? target.draftId : null;
@@ -127,11 +154,20 @@ export function ThreadRouteView({
     if (renderState === "missing") {
       const { clearPendingFileDropsForThread } = useSidebarPendingFileDropStore.getState();
       clearPendingFileDropsForThread(target.threadRef);
-      if (environmentHasAnyThreads && !background) {
+      if (paneHost && !background) paneHost.onRedirect(null);
+      else if (environmentHasAnyThreads && !background) {
         void navigate({ to: "/", replace: true });
       }
     }
-  }, [background, bootstrapComplete, environmentHasAnyThreads, navigate, renderState, target]);
+  }, [
+    background,
+    bootstrapComplete,
+    environmentHasAnyThreads,
+    navigate,
+    paneHost,
+    renderState,
+    target,
+  ]);
 
   let view: React.ReactNode = null;
   let redirect: React.ReactNode = null;
@@ -143,7 +179,7 @@ export function ThreadRouteView({
       )
     ) {
       // A draft whose thread is already live and hidden (mid-promotion): never mount it.
-      redirect = <Navigate to="/" replace />;
+      redirect = <ThreadRouteRedirect paneHost={paneHost} target={null} />;
     } else if (draftSession) {
       view = (
         <ChatView
@@ -157,14 +193,13 @@ export function ThreadRouteView({
       );
     } else if (draftRedirect && hiddenKeys.has(threadKey(draftRedirect))) {
       // Back to a promoted draft whose thread is now hidden: never mount it.
-      redirect = <Navigate to="/" replace />;
+      redirect = <ThreadRouteRedirect paneHost={paneHost} target={null} />;
     } else if (draftRedirect && hidingAnywhere && draftRedirectShell === null) {
       // While hiding, a thread outside the live list is judged by the server route, unmounted here.
       redirect = (
-        <Navigate
-          to="/$environmentId/$threadId"
-          params={buildThreadRouteParams(draftRedirect)}
-          replace
+        <ThreadRouteRedirect
+          paneHost={paneHost}
+          target={{ kind: "server", threadRef: draftRedirect }}
         />
       );
     } else if (draftRedirect) {
@@ -178,20 +213,20 @@ export function ThreadRouteView({
         />
       );
       redirect = (
-        <Navigate
-          to="/$environmentId/$threadId"
-          params={buildThreadRouteParams(draftRedirect)}
-          replace
+        <ThreadRouteRedirect
+          paneHost={paneHost}
+          target={{ kind: "server", threadRef: draftRedirect }}
         />
       );
     } else {
-      redirect = <Navigate to="/" replace />;
+      redirect = <ThreadRouteRedirect paneHost={paneHost} target={null} />;
     }
   } else if (hiddenByTagFilter) {
-    redirect = <Navigate to="/" replace />;
+    redirect = <ThreadRouteRedirect paneHost={paneHost} target={null} />;
   } else if (offShellBlocked) {
     // Before the shell bootstraps, a listed visible thread can still look off-shell.
-    if (bootstrapComplete && unlistedThread !== null) redirect = <Navigate to="/" replace />;
+    if (bootstrapComplete && unlistedThread !== null)
+      redirect = <ThreadRouteRedirect paneHost={paneHost} target={null} />;
   } else if (renderState === "ready" || (renderState === "loading" && serverThreadShell !== null)) {
     view = (
       <ChatView
@@ -202,6 +237,14 @@ export function ThreadRouteView({
       />
     );
   }
+
+  if (paneHost)
+    return (
+      <BackgroundThreadContext value={background}>
+        {view}
+        {background ? null : redirect}
+      </BackgroundThreadContext>
+    );
 
   return (
     <SidebarInset

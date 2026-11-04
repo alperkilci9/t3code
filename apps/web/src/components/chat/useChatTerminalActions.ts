@@ -1,3 +1,6 @@
+import { use } from "react";
+import { ChatPaneContext } from "./workspace/ChatPaneContext";
+import { useChatLayoutStore } from "../../chatLayoutStore";
 import type {
   EnvironmentProject,
   EnvironmentThreadShell,
@@ -61,6 +64,7 @@ export interface TerminalLaunchContext {
 }
 
 interface ChatTerminalActionsInput {
+  readonly presentation?: "drawer" | "panel";
   readonly environmentId: EnvironmentId;
   readonly composerRef: ComposerHandleRef;
   readonly terminalUiState: ReturnType<typeof selectThreadTerminalUiState>;
@@ -84,6 +88,8 @@ interface ChatTerminalActionsInput {
  * code blocks, which run in a reused or new drawer terminal.
  */
 export function useChatTerminalActions(input: ChatTerminalActionsInput) {
+  const pane = use(ChatPaneContext);
+  const panelPresentation = input.presentation === "panel";
   const {
     environmentId,
     composerRef,
@@ -134,14 +140,51 @@ export function useChatTerminalActions(input: ChatTerminalActionsInput) {
     composerRef.current?.addTerminalContext(selection);
   };
   const addTerminalContextToDraftStable = useStableCallback(addTerminalContextToDraft);
+  const addTerminalSurface = () => {
+    if (!activeThreadRef) return;
+    if (panelPresentation) pane?.requestPanel(true);
+    const launched = terminalActions.launchTerminal({
+      place: (terminalId) =>
+        useRightPanelStore.getState().openTerminal(activeThreadRef, terminalId),
+    });
+    if (!launched) return;
+    focusTerminal(activeThreadRef, launched.terminalId);
+    void launched.result;
+  };
+  const addTerminalSurfaceStable = useStableCallback(addTerminalSurface);
   const setTerminalOpen = (open: boolean) => {
     if (!activeThreadRef) return;
+    if (panelPresentation) {
+      if (open) addTerminalSurface();
+      else pane?.requestPanel(false);
+      return;
+    }
     storeSetTerminalOpen(activeThreadRef, open);
     focusActiveDrawerTerminal(activeThreadRef);
   };
   const setTerminalOpenStable = useStableCallback(setTerminalOpen);
   const toggleTerminalVisibility = () => {
     if (!activeThreadRef) return;
+    if (panelPresentation) {
+      if (
+        activeRightPanelSurface?.kind === "terminal" &&
+        useChatLayoutStore.getState().layout.splitPanelOpen
+      ) {
+        pane?.requestPanel(false);
+        return;
+      }
+      const store = useRightPanelStore.getState();
+      const terminal = selectThreadRightPanelState(
+        store.byThreadKey,
+        activeThreadRef,
+      ).surfaces.find((surface) => surface.kind === "terminal");
+      if (terminal) {
+        store.activateSurface(activeThreadRef, terminal.id);
+        pane?.requestPanel(true);
+        focusActivePanelTerminal(activeThreadRef);
+      } else addTerminalSurface();
+      return;
+    }
     const nextOpen = !terminalUiState.terminalOpen;
     if (
       nextOpen &&
@@ -247,9 +290,13 @@ export function useChatTerminalActions(input: ChatTerminalActionsInput) {
       // The drawer opens with the target already placed: opening it empty would claim
       // DEFAULT_THREAD_TERMINAL_ID, which a right-panel terminal may already own.
       place: (terminalId) =>
-        reusableTerminalId === null
-          ? storeNewTerminal(activeThreadRef, terminalId)
-          : storeEnsureTerminal(activeThreadRef, terminalId, { open: true }),
+        panelPresentation
+          ? (pane?.requestPanel(true),
+            storeCloseTerminal(activeThreadRef, terminalId),
+            useRightPanelStore.getState().openTerminal(activeThreadRef, terminalId))
+          : reusableTerminalId === null
+            ? storeNewTerminal(activeThreadRef, terminalId)
+            : storeEnsureTerminal(activeThreadRef, terminalId, { open: true }),
       ...(reusableTerminalId === null
         ? { size: { cols: SCRIPT_TERMINAL_COLS, rows: SCRIPT_TERMINAL_ROWS } }
         : { terminalId: reusableTerminalId }),
@@ -321,17 +368,6 @@ export function useChatTerminalActions(input: ChatTerminalActionsInput) {
     );
   };
   const runShellCommandStable = useStableCallback(runShellCommand);
-  const addTerminalSurface = () => {
-    if (!activeThreadRef) return;
-    const launched = terminalActions.launchTerminal({
-      place: (terminalId) =>
-        useRightPanelStore.getState().openTerminal(activeThreadRef, terminalId),
-    });
-    if (!launched) return;
-    focusTerminal(activeThreadRef, launched.terminalId);
-    void launched.result;
-  };
-  const addTerminalSurfaceStable = useStableCallback(addTerminalSurface);
   const splitPanelTerminal = (direction: "horizontal" | "vertical" = "horizontal") => {
     if (
       !activeThreadRef ||
@@ -413,19 +449,28 @@ export function useChatTerminalActions(input: ChatTerminalActionsInput) {
     },
     "terminal.split": ({ terminalFocusOwner }) => {
       if (!hasTerminalWriteAccess()) return false;
-      if (terminalFocusOwner === "right-panel") return void splitPanelTerminal();
+      if (terminalFocusOwner === "right-panel" || panelPresentation)
+        return void (activeRightPanelSurface?.kind === "terminal"
+          ? splitPanelTerminal()
+          : addTerminalSurface());
       openTerminalIfClosed();
       splitTerminal();
     },
     "terminal.splitVertical": ({ terminalFocusOwner }) => {
       if (!hasTerminalWriteAccess()) return false;
-      if (terminalFocusOwner === "right-panel") return void splitPanelTerminal("vertical");
+      if (terminalFocusOwner === "right-panel" || panelPresentation)
+        return void (activeRightPanelSurface?.kind === "terminal"
+          ? splitPanelTerminal("vertical")
+          : addTerminalSurface());
       openTerminalIfClosed();
       splitTerminal("vertical");
     },
     "terminal.close": ({ terminalFocusOwner }) => {
       if (!hasTerminalWriteAccess()) return false;
-      if (terminalFocusOwner === "right-panel" && activeRightPanelSurface?.kind === "terminal") {
+      if (
+        (terminalFocusOwner === "right-panel" || panelPresentation) &&
+        activeRightPanelSurface?.kind === "terminal"
+      ) {
         requestClosePanelTerminal(activeRightPanelSurface.activeTerminalId);
         return;
       }
@@ -433,7 +478,8 @@ export function useChatTerminalActions(input: ChatTerminalActionsInput) {
     },
     "terminal.new": ({ terminalFocusOwner }) => {
       if (!hasTerminalWriteAccess()) return false;
-      if (terminalFocusOwner === "right-panel") return void addTerminalSurface();
+      if (terminalFocusOwner === "right-panel" || panelPresentation)
+        return void addTerminalSurface();
       openTerminalIfClosed();
       createNewTerminal();
     },

@@ -80,3 +80,22 @@ it("records the visit of the next thread at once after switching threads", async
   // within the throttle window would otherwise keep it unread.
   expect(visitedThreadIds()).toEqual(["a", "b"]);
 });
+
+it("does not mark an offscreen column visited until it becomes visible", async () => {
+  const offscreen = { environmentId: ENVIRONMENT, threadId: ThreadId.make("offscreen") };
+  mocks.visitRun.mockReset();
+  mocks.visitRun.mockResolvedValue(AsyncResult.success(undefined));
+  setShell(offscreen, "2026-01-03T00:00:00.000Z");
+  await using screen = await render(
+    <AppAtomRegistryProvider>
+      <ThreadVisitWatermark threadRef={offscreen} enabled={false} />
+    </AppAtomRegistryProvider>,
+  );
+  expect(visitedThreadIds()).toEqual([]);
+  await screen.rerender(
+    <AppAtomRegistryProvider>
+      <ThreadVisitWatermark threadRef={offscreen} enabled />
+    </AppAtomRegistryProvider>,
+  );
+  expect(visitedThreadIds()).toEqual(["offscreen"]);
+});

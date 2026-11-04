@@ -94,8 +94,8 @@ export function createWorkspaceFocusController(doc: Document) {
     if (!(event.target instanceof HTMLElement)) return;
     const area = workspaceArea(event.target);
     if (!area?.dataset.workspaceArea) return;
-    lastArea = area.dataset.workspaceArea;
-    const key = area.dataset.workspaceFocusKey ?? lastArea;
+    const key = area.dataset.workspaceFocusKey ?? area.dataset.workspaceArea;
+    lastArea = key;
     lastFocused.delete(key);
     // Custom file trees retarget focusin to their nonfocusable shadow host.
     const target = event.composedPath().find((element) => element instanceof HTMLElement);
@@ -106,6 +106,9 @@ export function createWorkspaceFocusController(doc: Document) {
   doc.addEventListener("focusin", remember);
 
   const focusArea = (area: HTMLElement, restore = true) => {
+    area
+      .closest<HTMLElement>("[data-chat-pane]")
+      ?.scrollIntoView({ block: "nearest", inline: "nearest" });
     const key = area.dataset.workspaceFocusKey ?? area.dataset.workspaceArea!;
     const previous = restore ? lastFocused.get(key) : undefined;
     const belongs = (element: HTMLElement) =>
@@ -171,16 +174,20 @@ export function createWorkspaceFocusController(doc: Document) {
     const areas = Array.from(doc.querySelectorAll<HTMLElement>(AREA_SELECTOR)).filter(
       isWorkspaceElementVisible,
     );
+    const activeAreas = areas.filter((element) => {
+      const pane = element.closest<HTMLElement>("[data-chat-pane]");
+      return !pane || pane.dataset.chatPaneFocused === "true";
+    });
     const area =
       name === "content"
-        ? (areas.find((element) => element.dataset.workspaceArea === "composer") ??
+        ? (activeAreas.find((element) => element.dataset.workspaceArea === "composer") ??
           areas.find(
             (element) =>
               element.dataset.workspaceArea === "pull-requests" || element.matches("main"),
           ) ??
           areas.find((element) => element.dataset.workspaceArea === "conversation") ??
           areas.find((element) => element.dataset.workspaceArea === "panel"))
-        : areas.find((element) => element.dataset.workspaceArea === name);
+        : activeAreas.find((element) => element.dataset.workspaceArea === name);
     if (!area) return false;
     const surface = area.querySelector("[data-right-panel-surface-content]");
     // A lazy surface's Suspense fallback is empty. Wait for its content instead
@@ -228,8 +235,16 @@ export function createWorkspaceFocusController(doc: Document) {
       );
     if (areas.length === 0) return false;
     const activeArea = doc.activeElement?.closest<HTMLElement>(AREA_SELECTOR);
-    const currentId = fromArea ?? activeArea?.dataset.workspaceArea ?? lastArea;
-    const current = areas.findIndex((area) => area.dataset.workspaceArea === currentId);
+    const currentId =
+      fromArea ??
+      activeArea?.dataset.workspaceFocusKey ??
+      activeArea?.dataset.workspaceArea ??
+      lastArea;
+    const current = areas.findIndex((area) =>
+      fromArea
+        ? area.dataset.workspaceArea === fromArea
+        : (area.dataset.workspaceFocusKey ?? area.dataset.workspaceArea) === currentId,
+    );
     const index =
       current === -1
         ? direction === 1
@@ -334,6 +349,7 @@ export function startWorkspaceFocus(router: AnyRouter): () => void {
   const active = createWorkspaceFocusController(document);
   controller = active;
   const stopPanels = useRightPanelStore.subscribe((state, previous) => {
+    if (document.querySelector("[data-chat-shared-panel]")) return;
     if (state.userActionRevisionByThreadKey === previous.userActionRevisionByThreadKey) return;
     for (const [threadKey, revision] of Object.entries(state.userActionRevisionByThreadKey)) {
       if (previous.userActionRevisionByThreadKey[threadKey] === revision) continue;

@@ -335,6 +335,26 @@ const subscribe = <A>(first: ReadonlyArray<A>, register?: (queue: Queue.Queue<A>
   );
 
 const handlers: Record<string, (input: never) => unknown> = {
+  [ORCHESTRATION_V2_WS_METHODS.dispatchCommand]: (input: unknown) => {
+    observedRequests.push({ method: ORCHESTRATION_V2_WS_METHODS.dispatchCommand, input });
+    return Effect.succeed({ sequence: sequence++ });
+  },
+  [ORCHESTRATION_V2_WS_METHODS.getThreadProjection]: (input: { threadId: ThreadId }) =>
+    Effect.succeed(projectionOf(threads.find((thread) => thread.id === input.threadId)!)),
+  [WS_METHODS.vcsRefreshStatus]: () =>
+    Effect.succeed({
+      isRepo: false,
+      hasPrimaryRemote: false,
+      isDefaultRef: false,
+      refName: null,
+      hasWorkingTreeChanges: false,
+      workingTree: { files: [], insertions: 0, deletions: 0 },
+      hasUpstream: false,
+      aheadCount: 0,
+      behindCount: 0,
+      pr: null,
+    }),
+  [WS_METHODS.serverRefreshProviders]: () => Effect.succeed({ providers: serverConfig.providers }),
   [WS_METHODS.subscribeTerminalMetadata]: () =>
     subscribe<TerminalMetadataStreamEvent>([{ type: "snapshot", terminals: [] }], (queue) => {
       terminalMetadataSubscriber = queue;
@@ -386,10 +406,12 @@ const handlers: Record<string, (input: never) => unknown> = {
 };
 
 // Unanswered calls stay pending, like a server that has not replied yet.
+const observedRequests: { method: string; input: unknown }[] = [];
 const client = new Proxy(handlers, {
   get: (target, method: string) =>
     target[method] ??
-    (() => {
+    ((input: unknown) => {
+      observedRequests.push({ method, input });
       const rpc = WsRpcGroup.requests.get(method);
       return rpc && RpcSchema.isStreamSchema(rpc.successSchema) ? Stream.never : Effect.never;
     }),
@@ -433,7 +455,10 @@ const encodedDescriptor = Schema.encodeSync(ExecutionEnvironmentDescriptor)(
 );
 
 /** Serves the environment's HTTP API and these threads until disposed. */
-export function installFakeEnvironment(fixtures: ReadonlyArray<FakeThread>): Disposable {
+export function installFakeEnvironment(
+  fixtures: ReadonlyArray<FakeThread>,
+): Disposable & { requests: typeof observedRequests } {
+  observedRequests.length = 0;
   threads = fixtures;
   globalThis.fetch = async (input, init) => {
     const url = new URL(input instanceof Request ? input.url : String(input), window.location.href);
@@ -453,6 +478,7 @@ export function installFakeEnvironment(fixtures: ReadonlyArray<FakeThread>): Dis
     return realFetch(input, init);
   };
   return {
+    requests: observedRequests,
     [Symbol.dispose]: () => {
       globalThis.fetch = realFetch;
       threads = [];

@@ -1,3 +1,6 @@
+import { use } from "react";
+import { ChatPaneContext } from "./workspace/ChatPaneContext";
+import { ChatViewModeControl } from "./workspace/ChatViewModeControl";
 import { PanelBottomIcon, PanelRightIcon, SquareMenuIcon } from "lucide-react";
 import { Maximize2, Minimize2 } from "lucide";
 import { MorphIcon } from "~/components/MorphIcon";
@@ -49,6 +52,7 @@ export const PanelLayoutControls = memo(function PanelLayoutControls({
   onToggleThreadPanel,
   onToggleRightPanel,
 }: PanelLayoutControlsProps) {
+  const pane = use(ChatPaneContext);
   const threadPanelToggle = (
     <Toggle
       className="relative shrink-0 [-webkit-app-region:no-drag]"
@@ -82,6 +86,7 @@ export const PanelLayoutControls = memo(function PanelLayoutControls({
       className="flex h-full shrink-0 items-center gap-1 [-webkit-app-region:no-drag]"
       data-panel-layout-controls
     >
+      {!pane ? <ChatViewModeControl /> : null}
       {showThreadPanelControl ? threadPanelControl : null}
       {showTerminalControl ? (
         <Tooltip>
@@ -112,13 +117,14 @@ export const PanelLayoutControls = memo(function PanelLayoutControls({
               className="shrink-0 [-webkit-app-region:no-drag]"
               pressed={rightPanelOpen}
               onPressedChange={onToggleRightPanel}
-              aria-label="Toggle right panel"
+              aria-label={pane ? "Panel" : "Toggle right panel"}
               data-right-panel-toggle
               variant="ghost"
               size="sm"
               disabled={!rightPanelAvailable}
             >
               <PanelRightIcon className="size-4" />
+              {pane ? <span>Panel</span> : null}
             </Toggle>
           </TooltipTrigger>
           <TooltipPopup side="bottom">

@@ -281,3 +281,16 @@ describe("workspace area focus", () => {
     expect(document.activeElement).toBe(terminal.button);
   });
 });
+
+it("cycles distinct pane areas with repeated role names", () => {
+  using fixture = setup();
+  const firstConversation = fixture.area("conversation", 1);
+  fixture.area("composer", 2);
+  const secondConversation = fixture.area("conversation", 3);
+  const secondComposer = fixture.area("composer", 4);
+  firstConversation.element.dataset.workspaceFocusKey = "a-conversation";
+  secondConversation.element.dataset.workspaceFocusKey = "b-conversation";
+  secondConversation.element.focus();
+  fixture.controller.move(1);
+  expect(document.activeElement).toBe(secondComposer.button);
+});

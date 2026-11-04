@@ -3,9 +3,29 @@ import type { ScopedThreadRef } from "@t3tools/contracts";
 import { selectThreadRightPanelState, useRightPanelStore } from "../rightPanelStore";
 import { useTerminalUiStateStore } from "../terminalUiStateStore";
 import { focusTerminalOnNavigation } from "./terminalFocus";
+import { useChatLayoutStore } from "../chatLayoutStore";
 
 export function revealThreadTerminal(threadRef: ScopedThreadRef, terminalId: string) {
   const panels = useRightPanelStore.getState();
+  const layout = useChatLayoutStore.getState().layout;
+  const pane = layout.panes.find(
+    (entry) =>
+      entry.target.kind === "server" &&
+      entry.target.threadRef.environmentId === threadRef.environmentId &&
+      entry.target.threadRef.threadId === threadRef.threadId,
+  );
+  if (
+    pane &&
+    layout.mode !== "single" &&
+    (typeof window === "undefined" || window.innerWidth > 980)
+  ) {
+    panels.openTerminal(threadRef, terminalId);
+    useTerminalUiStateStore.getState().closeTerminal(threadRef, terminalId);
+    useChatLayoutStore.getState().dispatch({ type: "focus", paneId: pane.id });
+    useChatLayoutStore.getState().dispatch({ type: "set-panel-open", open: true });
+    focusTerminalOnNavigation(threadRef, terminalId);
+    return;
+  }
   const surface = selectThreadRightPanelState(panels.byThreadKey, threadRef).surfaces.find(
     (surface) => surface.kind === "terminal" && surface.terminalIds.includes(terminalId),
   );

@@ -6,6 +6,8 @@ import { userEvent } from "vite-plus/test/browser";
 import { surfaceShortcutKey } from "~/lib/surfaceShortcutKey";
 import { render } from "../../../test/render";
 import type { ChatComposerHandle } from "./ChatComposer";
+import { useChatLayoutStore } from "../../chatLayoutStore";
+import { DraftId } from "../../composerDraftStore";
 import { useChatShortcuts } from "./useChatShortcuts";
 
 const shortcutContext = {
@@ -47,9 +49,14 @@ function Launcher(props: { keys: string; received: string[] }) {
 
 // The chat's shortcut listener registers when the chat mounts, so a launcher that opens
 // later registers after it. Tests mount the chat first and add the launcher by rerendering.
-function Chat(props: { composerKeys: string[]; launcher?: { keys: string; received: string[] } }) {
+function Chat(props: {
+  paneId?: string;
+  composerKeys: string[];
+  launcher?: { keys: string; received: string[] };
+}) {
   useChatShortcuts({
     enabled: true,
+    paneId: props.paneId,
     keybindings: [],
     scriptKeybindings: [],
     getShortcutContext: () => shortcutContext,
@@ -186,4 +193,30 @@ it("runs a side chat's composer chords only from its composer, and never thread 
 
   expect(toggles).toEqual(["model"]);
   expect(stops).toEqual([]);
+});
+
+it("gives window input to the current pane even before its hooks rerender", async () => {
+  const a: string[] = [],
+    b: string[] = [];
+  const previous = useChatLayoutStore.getState().layout;
+  using _restore = { [Symbol.dispose]: () => useChatLayoutStore.setState({ layout: previous }) };
+  for (const id of ["A", "B"])
+    useChatLayoutStore.getState().dispatch({
+      type: "open",
+      pane: { id, target: { kind: "draft", draftId: DraftId.make(id) } },
+      placement: { kind: "append" },
+    });
+  await using _screen = await render(
+    <>
+      <Chat paneId="A" composerKeys={a} />
+      <Chat paneId="B" composerKeys={b} />
+    </>,
+    options,
+  );
+  useChatLayoutStore.getState().dispatch({ type: "focus", paneId: "B" });
+  document.body.dispatchEvent(
+    new KeyboardEvent("keydown", { key: "q", code: "KeyQ", bubbles: true, cancelable: true }),
+  );
+  expect(a).toEqual([]);
+  expect(b).toEqual(["q"]);
 });
