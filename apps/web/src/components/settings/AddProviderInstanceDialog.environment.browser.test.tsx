@@ -149,6 +149,31 @@ function setup() {
 }
 
 describe("AddProviderInstanceDialog environment routing", () => {
+  it("gives new Claude accounts separate credentials and keeps the wizard open for sign-in", async () => {
+    setup();
+    await using _screen = await render(dialog());
+    await act(async () => radio("Claude")!.click());
+    await click("Next");
+    await type("#add-provider-label", "Personal");
+    await click("Next");
+    await click("Continue to sign-in");
+
+    expect(settingsHooks.mutate).toHaveBeenCalledWith({
+      operation: "create",
+      instanceId: "claudeAgent_personal",
+      instance: {
+        driver: "claudeAgent",
+        enabled: true,
+        displayName: "Personal",
+        config: { homePath: "~/.claude-accounts/claudeAgent_personal" },
+      },
+    });
+    expect(actions.onOpenChange).not.toHaveBeenCalled();
+    expect(signInStep()?.textContent).toContain("remote-device/claudeAgent_personal");
+    await click("Finish sign-in");
+    expect(actions.onOpenChange).toHaveBeenCalledWith(false);
+  });
+
   it("chooses an unused identity for another account without replacing configured instances", async () => {
     setup();
     settingsHooks.read.mockReturnValue({

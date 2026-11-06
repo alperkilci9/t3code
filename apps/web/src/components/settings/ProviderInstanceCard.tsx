@@ -40,6 +40,7 @@ import { cn } from "../../lib/utils";
 import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
 import { useStableCallback } from "../../hooks/useStableCallback";
 import { normalizeProviderAccentColor } from "../../providerInstances";
+import { claudeAccountHomePath } from "../../claudeAccounts";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { MorphIcon } from "~/components/MorphIcon";
@@ -1335,6 +1336,35 @@ export function ProviderInstanceCard({
           aria-disabled={readOnly || undefined}
           className={readOnly ? "opacity-50 select-none" : undefined}
         >
+          {instance.driver === "claudeAgent" &&
+          instanceId !== "claudeAgent" &&
+          !readConfigString(instance.config, "homePath") &&
+          !instance.environment?.some(
+            (variable) => variable.name === "CLAUDE_CONFIG_DIR" && variable.value,
+          ) ? (
+            <SettingsRow
+              title="Claude account"
+              description="This provider shares the default Claude login. Give it a separate account, then sign in above."
+              control={
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={readOnly || instanceLocks?.configKeys.has("homePath")}
+                  onClick={() =>
+                    updateConfig(
+                      nextConfigBlobWithValue(
+                        instance.config,
+                        "homePath",
+                        claudeAccountHomePath(instanceId),
+                      ),
+                    )
+                  }
+                >
+                  Use a separate account
+                </Button>
+              }
+            />
+          ) : null}
           {runtimeFields}
         </SettingsSection>
       ) : null}

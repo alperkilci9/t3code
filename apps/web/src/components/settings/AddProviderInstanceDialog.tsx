@@ -23,6 +23,7 @@ import {
 
 import { cn } from "../../lib/utils";
 import { normalizeProviderAccentColor } from "../../providerInstances";
+import { claudeAccountHomePath } from "../../claudeAccounts";
 import { managedInstanceLocks, useManagedPolicy } from "../../state/managedPolicy";
 import { readEnvironmentScope, useEnvironmentScope } from "../../state/session";
 import { Button } from "../ui/button";
@@ -32,6 +33,7 @@ import { Badge } from "../ui/badge";
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "../ui/collapsible";
 import { Input } from "../ui/input";
 import { RadioGroup } from "../ui/radio-group";
+import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { toastManager } from "../ui/toast";
 import { providerClients } from "./providerDriverMeta";
 import { ProviderAccentColorPicker } from "./ProviderAccentColorPicker";
@@ -41,6 +43,7 @@ import { ProviderSettingsForm, deriveProviderSettingsFields } from "./ProviderSe
 import { WizardPanel, WizardPopup, WizardHeader, WizardFooter } from "../ui/wizard";
 import {
   ADD_PROVIDER_WIZARD_STEPS,
+  CLAUDE_WIZARD_STEPS,
   ACP_REGISTRY_WIZARD_STEPS,
   LOCAL_ACP_WIZARD_STEPS,
   deriveAvailableInstanceId,
@@ -193,6 +196,7 @@ export function AddProviderInstanceDialog({
   const [isManualAcpConfiguration, setIsManualAcpConfiguration] = useState(false);
   const [showMoreProviders, setShowMoreProviders] = useState(false);
   const [configByDriver, setConfigByDriver] = useState<Record<string, Record<string, unknown>>>({});
+  const [separateClaudeAccount, setSeparateClaudeAccount] = useState(true);
   const [hasAttemptedSubmit, setHasAttemptedSubmit] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [createdInstanceId, setCreatedInstanceId] = useState<ProviderInstanceId | null>(null);
@@ -206,6 +210,8 @@ export function AddProviderInstanceDialog({
   ]);
 
   const driverOption = providerClients.get(driver) ?? DEFAULT_DRIVER_OPTION;
+  const driverLocks = managedInstanceLocks(managedPolicy, driver);
+  const isClaude = driver === "claudeAgent";
   const isAcpRegistry = driver === ACP_REGISTRY_DRIVER_KIND;
   const showRegistrySearch =
     !createdInstanceId &&
@@ -239,7 +245,10 @@ export function AddProviderInstanceDialog({
   const identityStep = 1;
   const previewLabel = label.trim() || `${driverOption.label} Workspace`;
 
-  const configDraft = configByDriver[driver] ?? EMPTY_CONFIG_DRAFT;
+  const configDraft =
+    isClaude && separateClaudeAccount && !driverLocks?.configKeys.has("homePath")
+      ? { homePath: claudeAccountHomePath(instanceId), ...configByDriver[driver] }
+      : (configByDriver[driver] ?? EMPTY_CONFIG_DRAFT);
   const isLocalAcp = isAcpRegistry && isManualAcpConfiguration && configDraft.source === "local";
   const localCommandPath =
     typeof configDraft.commandPath === "string" ? configDraft.commandPath.trim() : "";
@@ -257,7 +266,9 @@ export function AddProviderInstanceDialog({
         previewLabel,
         null,
       ] as const)
-    : ([driverOption.label, previewLabel, null] as const);
+    : isClaude
+      ? ([driverOption.label, previewLabel, null, null] as const)
+      : ([driverOption.label, previewLabel, null] as const);
   const setConfigDraft = (config: Record<string, unknown> | undefined) => {
     setConfigByDriver((existing) => {
       const next = { ...existing };
@@ -290,6 +301,10 @@ export function AddProviderInstanceDialog({
       void handleSave();
       return;
     }
+    if (isClaude && navigation.kind === "navigate" && navigation.step === 3) {
+      void handleSave();
+      return;
+    }
     setWizardStep(navigation.step);
   };
 
@@ -305,9 +320,14 @@ export function AddProviderInstanceDialog({
               instanceIdError,
               selectionError: acpSelectionError,
             })
-        : resolveWizardNavigation(wizardStep, requestedStep, ADD_PROVIDER_WIZARD_STEPS.length, {
-            instanceIdError,
-          }),
+        : resolveWizardNavigation(
+            wizardStep,
+            requestedStep,
+            isClaude ? CLAUDE_WIZARD_STEPS.length : ADD_PROVIDER_WIZARD_STEPS.length,
+            {
+              instanceIdError,
+            },
+          ),
     );
   };
 
@@ -376,9 +396,6 @@ export function AddProviderInstanceDialog({
     setHasAttemptedSubmit(false);
   };
 
-  // A policy that owns this driver's launch settings also rules out ChatGPT's own runtime.
-  const driverLocks = managedInstanceLocks(managedPolicy, driver);
-
   const handleSave = async () => {
     if (!readEnvironmentScope(environmentId, AuthProvidersManageScope)) return;
     if (isSaving || createdInstanceId) return;
@@ -386,9 +403,7 @@ export function AddProviderInstanceDialog({
     if (instanceIdError !== null || (isAcpRegistry && acpSelectionError !== null)) return;
 
     const config =
-      driver === "codex"
-        ? { ...configByDriver[driver], setupMode: "existing" }
-        : (configByDriver[driver] ?? {});
+      driver === "codex" ? { ...configByDriver[driver], setupMode: "existing" } : configDraft;
     const hasConfig = Object.keys(config).length > 0;
     const normalizedAccentColor = normalizeProviderAccentColor(accentColor);
 
@@ -418,10 +433,10 @@ export function AddProviderInstanceDialog({
       return;
     }
     onCreated?.(brandedId);
-    if (isAcpRegistry && !isLocalAcp) {
+    if ((isAcpRegistry && !isLocalAcp) || isClaude) {
       setCreatedInstanceId(brandedId);
       setIsSaving(false);
-      setWizardStep(2);
+      setWizardStep(isClaude ? 3 : 2);
       return;
     }
     toastManager.add({
@@ -464,7 +479,8 @@ export function AddProviderInstanceDialog({
               currentStep={wizardStep}
               summaries={wizardStepSummaries}
               instanceIdError={instanceIdError}
-              disabled={isSaving || isPreparingRegistryAgent}
+              steps={isClaude ? CLAUDE_WIZARD_STEPS : ADD_PROVIDER_WIZARD_STEPS}
+              disabled={isSaving || isPreparingRegistryAgent || createdInstanceId !== null}
               onNavigation={applyWizardNavigation}
             />
           )}
@@ -698,6 +714,35 @@ export function AddProviderInstanceDialog({
 
               {!isAcpRegistry && driverSettingsFields.length > 0 ? (
                 <SettingsGroup variant="plain" className={cn(wizardStep !== 2 && "hidden")}>
+                  {isClaude && !driverLocks?.configKeys.has("homePath") ? (
+                    <SettingsRow
+                      title="Claude account"
+                      description={
+                        separateClaudeAccount
+                          ? "Sign in to another account without changing your existing Claude login."
+                          : "Reuse the login and settings from an existing Claude configuration."
+                      }
+                      control={
+                        <Select
+                          value={separateClaudeAccount ? "separate" : "existing"}
+                          onValueChange={(value) => {
+                            if (value !== "separate" && value !== "existing") return;
+                            setSeparateClaudeAccount(value === "separate");
+                            const { homePath: _homePath, ...config } = configDraft;
+                            setConfigDraft(config);
+                          }}
+                        >
+                          <SelectTrigger size="sm" aria-label="Claude account configuration">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectPopup>
+                            <SelectItem value="separate">Separate account</SelectItem>
+                            <SelectItem value="existing">Existing configuration</SelectItem>
+                          </SelectPopup>
+                        </Select>
+                      }
+                    />
+                  ) : null}
                   <ProviderSettingsForm
                     definition={driverOption}
                     value={configDraft}
@@ -762,7 +807,7 @@ export function AddProviderInstanceDialog({
                 >
                   {isSaving
                     ? "Adding..."
-                    : isAcpRegistry && !isLocalAcp
+                    : (isAcpRegistry && !isLocalAcp) || isClaude
                       ? "Continue to sign-in"
                       : "Add instance"}
                 </Button>

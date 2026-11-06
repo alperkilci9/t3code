@@ -1,4 +1,9 @@
-import { ClaudeSettings, ProviderDriverKind } from "@t3tools/contracts";
+import {
+  ClaudeSettings,
+  ProviderDriverKind,
+  ProviderSetupError,
+  type ServerProvider,
+} from "@t3tools/contracts";
 import * as Cache from "effect/Cache";
 import * as Duration from "effect/Duration";
 import * as SecureRandom from "effect/crypto/SecureRandom";
@@ -6,6 +11,7 @@ import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
+import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import { HttpClient } from "effect/http";
@@ -42,6 +48,7 @@ import {
   type ProviderInstance,
 } from "@t3tools/provider-core/server/driver";
 import { withInstanceIdentity } from "@t3tools/provider-core/server/instanceIdentity";
+import type { ServerProviderDraft } from "@t3tools/provider-core/server/snapshotProbe";
 import { enrichProviderSnapshotWithVersionAdvisory } from "@t3tools/provider-core/server/maintenanceResolver";
 import {
   haveProviderSnapshotSettingsChanged,
@@ -51,11 +58,14 @@ import {
 import {
   makeClaudeCapabilitiesCacheKey,
   makeClaudeContinuationGroupKey,
+  makeClaudeEnvironment,
   mergeClaudeProcessEnvironment,
   resolveClaudeHomePath,
 } from "./ClaudeHome.ts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { makeClaudeMaintenanceResolution } from "./ClaudeMaintenance.ts";
+import { makeClaudeAuth } from "./ClaudeAuth.ts";
+import * as PtyAdapter from "@t3tools/shared/PtyAdapter";
 const decodeClaudeSettings = Schema.decodeSync(ClaudeSettings);
 
 const DRIVER_KIND = ProviderDriverKind.make("claudeAgent");
@@ -132,18 +142,35 @@ export const ClaudeDriver: ProviderDriver<ClaudeSettings, ClaudeDriverEnv, Path.
     );
     const continuationGroupKey = yield* makeClaudeContinuationGroupKey(effectiveConfig, processEnv);
     const configDir = yield* resolveClaudeHomePath(effectiveConfig, processEnv);
+    const pty = yield* Effect.serviceOption(PtyAdapter.PtyAdapter);
+    const canAuthenticate =
+      Option.isSome(pty) &&
+      !["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"].some((name) =>
+        processEnv[name]?.trim(),
+      ) &&
+      !["CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY"].some(
+        (name) => /^(1|true)$/i.test(processEnv[name] ?? ""),
+      );
     const accountConfigPath = yield* ClaudeResetCredits.claudeAccountConfigPath(
       effectiveConfig.homePath.trim() || processEnv.CLAUDE_CONFIG_DIR?.trim()
         ? configDir
         : undefined,
     );
-    const stampIdentity = withInstanceIdentity({
+    const withIdentity = withInstanceIdentity({
       instanceId,
       driverKind: DRIVER_KIND,
       displayName,
       accentColor,
       continuationGroupKey,
     });
+    const stampIdentity = (draft: ServerProviderDraft): ServerProvider => {
+      const provider = withIdentity(draft);
+      return {
+        ...provider,
+        setup: { ...provider.setup, canInstall: false, canAuthenticate },
+        auth: { ...provider.auth, canLogout: canAuthenticate },
+      };
+    };
 
     const scopedLimitNames = yield* makeClaudeScopedLimitNames;
     const orchestrationAdapter = yield* createClaudeAdapterV2(
@@ -299,6 +326,40 @@ export const ClaudeDriver: ProviderDriver<ClaudeSettings, ClaudeDriverEnv, Path.
       ),
     );
 
+    const auth =
+      canAuthenticate && Option.isSome(pty)
+        ? yield* makeClaudeAuth({
+            instanceId,
+            enabled,
+            binaryPath: effectiveConfig.binaryPath,
+            configDir,
+            cwd: stateDir,
+            environment: yield* makeClaudeEnvironment(effectiveConfig, processEnv),
+            onChanged: Effect.fn("ClaudeDriver.onAuthChanged")(function* (signedIn: boolean) {
+              yield* Ref.set(lastGoodCapabilities, undefined);
+              yield* Cache.invalidateAll(capabilitiesProbeCache);
+              const provider = yield* snapshot.refresh.pipe(
+                Effect.mapError(
+                  (cause) =>
+                    new ProviderSetupError({
+                      instanceId,
+                      operation: signedIn ? "verify" : "logout",
+                      detail:
+                        "Could not refresh this Claude account. Refresh provider status to try again.",
+                      cause,
+                    }),
+                ),
+              );
+              if (signedIn && provider.auth.status !== "authenticated")
+                return yield* new ProviderSetupError({
+                  instanceId,
+                  operation: "verify",
+                  detail: "Claude could not verify this account. Start sign-in again.",
+                });
+            }),
+          }).pipe(Effect.provideService(PtyAdapter.PtyAdapter, pty.value))
+        : undefined;
+
     // Same rules as Codex: serialised on the config directory that holds the
     // login, one request id kept until Claude answers (a cooldown or rate
     // limit is an answer), then a re-probe.
@@ -372,6 +433,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeSettings, ClaudeDriverEnv, Path.
       accentColor,
       enabled,
       snapshot,
+      ...(auth ? { auth } : {}),
       invalidateCaches: Cache.invalidateAll(capabilitiesProbeCache),
       snapshotForCwd: (cwd: string) =>
         snapshot.getSnapshot.pipe(
