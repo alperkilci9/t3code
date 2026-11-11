@@ -28,12 +28,21 @@ export const ServerProviderResetCredits = Schema.Struct({
 });
 export type ServerProviderResetCredits = typeof ServerProviderResetCredits.Type;
 
+export const ServerProviderUsageDetail = Schema.Struct({
+  id: TrimmedNonEmptyString,
+  label: TrimmedNonEmptyString,
+  value: TrimmedNonEmptyString,
+  tone: Schema.optional(Schema.Literals(["default", "warning"])),
+});
+export type ServerProviderUsageDetail = typeof ServerProviderUsageDetail.Type;
+
 /** Clear bars for unavailable accounts; retain last good bars after a failed probe. */
 export const ServerProviderUsageLimits = Schema.Struct({
   checkedAt: IsoDateTime,
   windows: ForwardCompatibleArray(ServerProviderUsageWindow),
   credentialFingerprint: Schema.optional(TrimmedNonEmptyString),
   resetCredits: Schema.optional(ServerProviderResetCredits),
+  details: Schema.optional(ForwardCompatibleArray(ServerProviderUsageDetail)),
   externalUsage: Schema.optional(
     Schema.Struct({
       label: TrimmedNonEmptyString,
@@ -129,6 +138,7 @@ export const UsageLimitsReport = Schema.Struct({
       resetCreditInput: Schema.optional(ProviderConsumeResetCreditInput),
       displayName: Schema.optional(Schema.String),
       accentColor: Schema.optional(Schema.String),
+      iconUrl: Schema.optional(TrimmedNonEmptyString),
       limits: ServerProviderUsageLimits,
     }),
   ),

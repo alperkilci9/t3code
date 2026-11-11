@@ -175,7 +175,11 @@ export function collectExternalUsageLinks(presentations: LimitPresentations) {
   for (const presentation of presentations.values()) {
     for (const provider of providersWithLimits(presentation.serverConfig?.providers ?? [])) {
       const external = provider.usageLimits?.externalUsage;
-      if (external && provider.auth.status === "authenticated") {
+      if (
+        external &&
+        provider.auth.status === "authenticated" &&
+        (!provider.usageLimits || limitsNotice(provider.usageLimits) !== null)
+      ) {
         const account = `${provider.displayName ?? provider.instanceId} on ${presentation.entry.target.label}`;
         links.set(external.url, {
           ...external,
@@ -242,6 +246,7 @@ export interface LimitAccount {
   readonly email: string | undefined;
   readonly plan: string | undefined;
   readonly accentColor: string | undefined;
+  readonly iconUrl?: string | undefined;
   readonly environments: ReadonlyArray<{
     readonly environmentId: EnvironmentId;
     readonly label: string;
@@ -314,6 +319,7 @@ export function collectLimitAccounts(presentations: LimitPresentations): readonl
           : displayName,
       plan: planSources.get(key)?.plan ?? previous.plan ?? next.plan,
       accentColor: previous.accentColor ?? next.accentColor,
+      iconUrl: previous.iconUrl ?? next.iconUrl,
       environments,
       sourceLabel: environments.length > 0 ? null : (previous.sourceLabel ?? next.sourceLabel),
       redeem:
@@ -346,6 +352,7 @@ export function collectLimitAccounts(presentations: LimitPresentations): readonl
         email: provider.auth.email,
         plan: provider.auth.label,
         accentColor: provider.accentColor,
+        iconUrl: provider.iconUrl,
         environments: [{ environmentId, label }],
         sourceLabel: null,
         redeem: { environmentId, input: { instanceId: provider.instanceId } },
@@ -437,9 +444,24 @@ export interface LimitPoolWindow {
 }
 
 export interface LimitPool {
+  readonly key?: string | undefined;
   readonly driver: ServerProvider["driver"];
+  readonly label?: string | undefined;
+  readonly iconUrl?: string | undefined;
   readonly accounts: readonly LimitAccount[];
   readonly windows: readonly LimitPoolWindow[];
+}
+
+function acpRegistryAgentPoolKey(input: {
+  readonly iconUrl?: string | undefined;
+  readonly displayName?: string | null | undefined;
+  readonly fallback: string;
+}): string {
+  const iconMatch = input.iconUrl?.match(/\/([^/?#]+)\.svg(?:[?#]|$)/i)?.[1]?.toLowerCase();
+  if (iconMatch) return `acpRegistry:${iconMatch}`;
+  const normalizedName = input.displayName?.trim().toLowerCase();
+  if (normalizedName) return `acpRegistry:${normalizedName}`;
+  return `acpRegistry:${input.fallback}`;
 }
 
 export function displayLimitWindows(pool: LimitPool) {
@@ -473,13 +495,21 @@ export function collectLimitPools(
   accounts: readonly LimitAccount[],
   now: number,
 ): readonly LimitPool[] {
-  const byDriver = new Map<ServerProvider["driver"], LimitAccount[]>();
+  const byGroup = new Map<string, { driver: ServerProvider["driver"]; members: LimitAccount[] }>();
   for (const account of accounts) {
-    const list = byDriver.get(account.driver);
-    if (list) list.push(account);
-    else byDriver.set(account.driver, [account]);
+    const groupKey =
+      account.driver === "acpRegistry"
+        ? acpRegistryAgentPoolKey({
+            iconUrl: account.iconUrl,
+            displayName: account.displayName,
+            fallback: account.key,
+          })
+        : String(account.driver);
+    const existing = byGroup.get(groupKey);
+    if (existing) existing.members.push(account);
+    else byGroup.set(groupKey, { driver: account.driver, members: [account] });
   }
-  return [...byDriver].map(([driver, members]) => {
+  return [...byGroup].map(([groupKey, { driver, members }]) => {
     const orderWindow = members
       .flatMap((account) => account.limits.windows)
       .sort((left, right) => WINDOW_KIND_ORDER[left.kind] - WINDOW_KIND_ORDER[right.kind])[0];
@@ -498,7 +528,20 @@ export function collectLimitPools(
         accountSortName(left).localeCompare(accountSortName(right)) ||
         left.key.localeCompare(right.key),
     );
-    return { driver, accounts: sorted, windows: poolWindows(sorted, now) };
+    const acpIconUrl =
+      driver === "acpRegistry" ? sorted.find((member) => member.iconUrl)?.iconUrl : undefined;
+    const acpLabel =
+      driver === "acpRegistry"
+        ? (sorted.find((member) => member.displayName)?.displayName ?? undefined)
+        : undefined;
+    return {
+      ...(groupKey !== String(driver) ? { key: groupKey } : {}),
+      driver,
+      ...(acpLabel ? { label: acpLabel } : {}),
+      ...(acpIconUrl ? { iconUrl: acpIconUrl } : {}),
+      accounts: sorted,
+      windows: poolWindows(sorted, now),
+    };
   });
 }
 
@@ -724,13 +767,43 @@ export function sameUsageLimitCommandCoverage(
   return before.size === after.size && [...before].every((driver) => after.has(driver));
 }
 
+function sameUsageLimitProviderGroup(left: ServerProvider, right: ServerProvider): boolean {
+  if (left.driver !== right.driver) return false;
+  if (left.driver !== "acpRegistry") return true;
+  return (
+    acpRegistryAgentPoolKey({
+      iconUrl: left.iconUrl,
+      displayName: left.displayName,
+      fallback: left.instanceId,
+    }) ===
+    acpRegistryAgentPoolKey({
+      iconUrl: right.iconUrl,
+      displayName: right.displayName,
+      fallback: right.instanceId,
+    })
+  );
+}
+
+function hasInstanceUsageLimits(
+  target: ServerProvider,
+  providers: readonly ServerProvider[],
+  sources: UsageLimitSourceSnapshots,
+): boolean {
+  if (target.driver === "acpRegistry") {
+    return providersWithLimits(providers).some((candidate) =>
+      sameUsageLimitProviderGroup(target, candidate),
+    );
+  }
+  return hasProviderUsageLimits(target.driver, providers, sources);
+}
+
 /** Advertise on workspace catalogs too, which replace the global command list. */
 export function withUsageLimitsCommands(
   providers: readonly ServerProvider[],
   sources: UsageLimitSourceSnapshots,
 ): ServerProvider[] {
   return providers.map((provider) => {
-    if (!hasProviderUsageLimits(provider.driver, providers, sources)) return provider;
+    if (!hasInstanceUsageLimits(provider, providers, sources)) return provider;
     const commands = (items: readonly ServerProviderSlashCommand[]) => [
       ...items.filter((command) => command.name !== USAGE_LIMITS_COMMAND.name),
       USAGE_LIMITS_COMMAND,
@@ -757,7 +830,7 @@ export function collectProviderUsageLimits(
   now: number,
 ): UsageLimitsReport | null {
   const selected = providers.find((provider) => provider.instanceId === instanceId);
-  if (!selected || !hasProviderUsageLimits(selected.driver, providers, sources)) return null;
+  if (!selected || !hasInstanceUsageLimits(selected, providers, sources)) return null;
   const resolveKey = accountKeyResolver([
     ...providers.filter((provider) => provider.enabled).map(nativeReport),
     ...sources.flatMap((source) => source.accounts),
@@ -768,7 +841,7 @@ export function collectProviderUsageLimits(
     { usage: NativeSnapshot; credits: NativeSnapshot | null }
   >();
   for (const provider of providersWithLimits(providers)) {
-    if (provider.driver !== selected.driver || !provider.usageLimits) continue;
+    if (!sameUsageLimitProviderGroup(provider, selected) || !provider.usageLimits) continue;
     const snapshot = { provider, limits: provider.usageLimits };
     const key = resolveKey(nativeReport(provider)) ?? `instance:${provider.instanceId}`;
     const previous = nativeByAccount.get(key);
@@ -843,6 +916,7 @@ export function collectProviderUsageLimits(
           : { instanceId: credits?.provider.instanceId ?? provider.instanceId },
       ...(provider.displayName ? { displayName: provider.displayName } : {}),
       ...(provider.accentColor ? { accentColor: provider.accentColor } : {}),
+      ...(provider.iconUrl ? { iconUrl: provider.iconUrl } : {}),
       ...(provider.auth.email ? { email: provider.auth.email } : {}),
       limits: shownCredits ? { ...limits, resetCredits: shownCredits } : limits,
     });

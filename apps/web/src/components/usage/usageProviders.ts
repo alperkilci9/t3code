@@ -8,6 +8,8 @@ type UsageProviderPresentation = {
   readonly driverKind: ProviderDriverKind;
 };
 
+export const DEVIN_USAGE_COLOR = "#12b5a6";
+
 export const PROVIDER_PRESENTATION = {
   codex: {
     label: "Codex",

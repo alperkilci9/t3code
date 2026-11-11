@@ -16,11 +16,20 @@ import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
+import * as FileSystem from "effect/FileSystem";
+import * as Path from "effect/Path";
 import * as Ref from "effect/Ref";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
+import * as HttpClient from "effect/http/HttpClient";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
+import { resolveUsageLimitsAfterProbe } from "@t3tools/provider-core/server/usageLimits";
+import {
+  type DevinAccountSnapshot,
+  isDevinAcpSettings,
+  readDevinAccountSnapshot,
+} from "./devinUsageLimits.ts";
 
 import * as ProviderHost from "@t3tools/provider-core/server/ProviderHost";
 import { AcpRegistryAdapterV2Driver, type AcpRegistryAdapterV2DriverEnv } from "./adapter.ts";
@@ -541,6 +550,51 @@ export const AcpRegistryDriver: ProviderDriver<AcpRegistrySettings, AcpRegistryD
       settings: effectiveConfig,
       environment: processEnvironment,
     };
+    const httpClient = yield* Effect.serviceOption(HttpClient.HttpClient);
+    const fileSystem = yield* Effect.serviceOption(FileSystem.FileSystem);
+    const pathService = yield* Effect.serviceOption(Path.Path);
+    const platform = yield* Effect.serviceOption(HostProcess.Platform);
+    const homeDirectory = yield* Effect.serviceOption(HostProcess.HomeDirectory);
+    const isDevin = isDevinAcpSettings(effectiveConfig);
+    const lastDevinAccountRef = yield* Ref.make<DevinAccountSnapshot | null>(null);
+    const refreshDevinAccount = Effect.fn("AcpRegistryDriver.refreshDevinAccount")(function* () {
+      if (
+        !isDevin ||
+        !effectiveConfig.enabled ||
+        Option.isNone(httpClient) ||
+        Option.isNone(fileSystem) ||
+        Option.isNone(pathService) ||
+        Option.isNone(platform) ||
+        Option.isNone(homeDirectory)
+      ) {
+        return;
+      }
+      const next = yield* readDevinAccountSnapshot(processEnvironment).pipe(
+        Effect.provideService(HttpClient.HttpClient, httpClient.value),
+        Effect.provideService(FileSystem.FileSystem, fileSystem.value),
+        Effect.provideService(Path.Path, pathService.value),
+        Effect.provideService(HostProcess.Platform, platform.value),
+        Effect.provideService(HostProcess.HomeDirectory, homeDirectory.value),
+      );
+      yield* Ref.update(lastDevinAccountRef, (previous) => {
+        const mergedLimits =
+          resolveUsageLimitsAfterProbe({
+            published: previous?.usageLimits,
+            probed: next.usageLimits,
+          }) ?? next.usageLimits;
+        const keepPreviousIdentity =
+          next.usageLimits.unavailable?.reason === "probeFailed" && previous !== null;
+        return {
+          usageLimits: mergedLimits,
+          authenticated:
+            next.authenticated || Boolean(keepPreviousIdentity && previous.authenticated),
+          email: next.email ?? (keepPreviousIdentity ? previous.email : undefined),
+          plan: next.plan ?? (keepPreviousIdentity ? previous.plan : undefined),
+          workspaceId:
+            next.workspaceId ?? (keepPreviousIdentity ? previous.workspaceId : undefined),
+        };
+      });
+    });
     const confirmedAuthentication =
       yield* AcpRegistryAuthenticationState.makeAcpRegistryAuthenticationState({
         cacheDir: host.paths.providerStatusCacheDir,
@@ -553,13 +607,27 @@ export const AcpRegistryDriver: ProviderDriver<AcpRegistrySettings, AcpRegistryD
       input: ServerProvider,
     ) {
       if (input.auth.status === "unauthenticated") yield* confirmedAuthentication.set(false);
-      const provider =
+      const devinAccount = isDevin ? yield* Ref.get(lastDevinAccountRef) : null;
+      const baseProvider =
         input.enabled &&
         input.installed &&
         input.auth.status === "unknown" &&
-        (yield* confirmedAuthentication.get)
+        ((yield* confirmedAuthentication.get) || Boolean(devinAccount?.authenticated))
           ? { ...input, auth: { ...input.auth, status: "authenticated" as const } }
           : input;
+      const provider =
+        devinAccount && baseProvider.enabled && baseProvider.installed
+          ? {
+              ...baseProvider,
+              usageLimits: devinAccount.usageLimits,
+              auth: {
+                ...baseProvider.auth,
+                ...(devinAccount.email ? { email: devinAccount.email } : {}),
+                ...(devinAccount.plan ? { label: devinAccount.plan } : {}),
+                ...(devinAccount.workspaceId ? { workspaceId: devinAccount.workspaceId } : {}),
+              },
+            }
+          : baseProvider;
       return yield* Option.isNone(runtimeCoordinator)
         ? Effect.succeed(provider)
         : Effect.all({
@@ -584,6 +652,9 @@ export const AcpRegistryDriver: ProviderDriver<AcpRegistrySettings, AcpRegistryD
     });
     const checkProvider = checkAcpRegistryProviderReadiness(readinessInput).pipe(
       Effect.provideService(AcpRegistrySupport.AcpRegistryCatalog, catalog),
+      Effect.tap((snapshot) =>
+        snapshot.enabled && snapshot.installed ? refreshDevinAccount() : Effect.void,
+      ),
       Effect.flatMap(withLiveRuntimeState),
     );
     const enrichProvider = checkAcpRegistryProviderStatus(
@@ -774,11 +845,15 @@ export const AcpRegistryDriver: ProviderDriver<AcpRegistrySettings, AcpRegistryD
         : provided;
     };
 
-    const clearLiveState = Option.isSome(runtimeCoordinator)
-      ? runtimeCoordinator.value
-          .clearLiveConfiguration(instanceId)
-          .pipe(Effect.andThen(runtimeCoordinator.value.clearAvailableCommands(instanceId)))
-      : Effect.void;
+    const clearLiveState = Ref.set(lastDevinAccountRef, null).pipe(
+      Effect.andThen(
+        Option.isSome(runtimeCoordinator)
+          ? runtimeCoordinator.value
+              .clearLiveConfiguration(instanceId)
+              .pipe(Effect.andThen(runtimeCoordinator.value.clearAvailableCommands(instanceId)))
+          : Effect.void,
+      ),
+    );
     const controller = yield* AcpRegistryAuth.makeAcpRegistryAuth({
       instanceId,
       settings: effectiveConfig,
@@ -887,6 +962,7 @@ export const AcpRegistryDriver: ProviderDriver<AcpRegistrySettings, AcpRegistryD
             Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
             Effect.provideService(SecureRandom.SecureRandom, random),
             Effect.tap(() => confirmedAuthentication.set(false)),
+            Effect.tap(() => Ref.set(lastDevinAccountRef, null)),
             Effect.tap(() =>
               liveSnapshotSemaphore.withPermit(
                 invalidateEnrichmentCache.pipe(

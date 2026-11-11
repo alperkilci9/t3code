@@ -40,7 +40,7 @@ import {
 import { Button } from "../ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { UsageLimitsPooled } from "./UsageLimitsPooled";
-import { PROVIDER_PRESENTATION } from "./usageProviders";
+import { DEVIN_USAGE_COLOR, PROVIDER_PRESENTATION } from "./usageProviders";
 
 const PACE: Record<LimitPace, { readonly label: string; readonly icon: typeof GaugeIcon }> = {
   ahead: { label: "Ahead of pace: spending faster than the window elapses", icon: TrendingUpIcon },
@@ -48,7 +48,17 @@ const PACE: Record<LimitPace, { readonly label: string; readonly icon: typeof Ga
   under: { label: "Under pace: headroom left for the rest of the window", icon: TrendingDownIcon },
 };
 
-export function barColor(driver: ServerProvider["driver"]): string {
+export function barColor(
+  driver: ServerProvider["driver"],
+  hint?: { readonly label?: string | undefined; readonly iconUrl?: string | undefined },
+): string {
+  if (
+    driver === "acpRegistry" &&
+    (hint?.iconUrl?.toLowerCase().includes("/devin.") ||
+      hint?.label?.trim().toLowerCase() === "devin")
+  ) {
+    return DEVIN_USAGE_COLOR;
+  }
   const presentation = Object.values(PROVIDER_PRESENTATION).find(
     (entry) => entry.driverKind === driver,
   );
@@ -189,17 +199,22 @@ function WindowBar({
 export function LimitWindows({
   driver,
   accentColor,
+  displayName,
+  iconUrl,
   windows,
   now,
   compact = false,
 }: {
   readonly driver: ServerProvider["driver"];
   readonly accentColor?: string | undefined;
+  readonly displayName?: string | undefined;
+  readonly iconUrl?: string | undefined;
   readonly windows: ReadonlyArray<ServerProviderUsageWindow>;
   readonly now: number;
   readonly compact?: boolean;
 }) {
-  const color = normalizeProviderAccentColor(accentColor) ?? barColor(driver);
+  const color =
+    normalizeProviderAccentColor(accentColor) ?? barColor(driver, { label: displayName, iconUrl });
   return (
     <div
       className={

@@ -14,6 +14,9 @@ import type { ComposerBannerStackItem } from "./ComposerBannerStack";
 
 function accountLabel(account: UsageLimitsReport["accounts"][number]): string {
   if (!account.instanceId) return account.label;
+  if (account.driver === "acpRegistry" && account.displayName?.trim()) {
+    return account.displayName.trim();
+  }
   const driver = providerClients.get(account.driver)?.label ?? String(account.driver);
   const instance =
     account.displayName?.trim() ||
@@ -40,6 +43,19 @@ function AccountSummary({ account }: { readonly account: UsageLimitsReport["acco
         label
       )}
       {account.plan ? ` · ${account.plan}` : null}
+      {account.email && !label.includes("@") ? (
+        <>
+          {" · "}
+          <RedactedSensitiveText
+            key={account.email}
+            value={account.email}
+            ariaLabel="Toggle account email visibility"
+            revealTooltip="Click to reveal email"
+            hideTooltip="Click to hide email"
+            className="max-w-full truncate align-bottom font-sans text-xs leading-normal"
+          />
+        </>
+      ) : null}
     </>
   );
 }
@@ -133,10 +149,21 @@ function UsageLimitsBannerBody({
                   compact
                   driver={account.driver}
                   accentColor={account.accentColor}
+                  displayName={account.displayName}
+                  iconUrl={account.iconUrl}
                   windows={account.limits.windows}
                   now={now}
                 />
               )}
+              {account.limits.details && account.limits.details.length > 0 ? (
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
+                  {account.limits.details.map((detail) => (
+                    <span key={detail.id} className="tabular-nums">
+                      {detail.label}: <span className="text-foreground">{detail.value}</span>
+                    </span>
+                  ))}
+                </div>
+              ) : null}
               {externalUsage ? (
                 <Button
                   size="sm"

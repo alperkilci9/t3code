@@ -1506,3 +1506,63 @@ describe("ChatGPT sharing presentation", () => {
     ).toBe(false);
   });
 });
+
+describe("ACP Registry per-agent usage limits", () => {
+  it("scopes pools and /usage-limits commands to the specific ACP Registry agent", () => {
+    const checkedAt = "2026-11-11T00:00:00.000Z";
+    const devin: ServerProvider = {
+      instanceId: ProviderInstanceId.make("acpRegistry_devin"),
+      driver: ProviderDriverKind.make("acpRegistry"),
+      displayName: "Devin",
+      iconUrl: "https://cdn.agentclientprotocol.com/registry/v1/latest/devin.svg",
+      enabled: true,
+      installed: true,
+      version: "0.9.4",
+      status: "ready",
+      auth: { status: "authenticated", email: "user@example.com", label: "Devin Pro" },
+      checkedAt,
+      models: [],
+      slashCommands: [],
+      skills: [],
+      usageLimits: {
+        checkedAt,
+        windows: [{ id: "daily", kind: "session", label: "Daily", usedPercent: 20 }],
+        externalUsage: { label: "Devin Plans & Usage", url: "https://app.devin.ai/settings/plans" },
+      },
+    };
+    const goose: ServerProvider = {
+      instanceId: ProviderInstanceId.make("acpRegistry_goose"),
+      driver: ProviderDriverKind.make("acpRegistry"),
+      displayName: "Goose",
+      iconUrl: "https://cdn.agentclientprotocol.com/registry/v1/latest/goose.svg",
+      enabled: true,
+      installed: true,
+      version: "1.0.0",
+      status: "ready",
+      auth: { status: "authenticated" },
+      checkedAt,
+      models: [],
+      slashCommands: [],
+      skills: [],
+    };
+
+    const withCommands = withUsageLimitsCommands([devin, goose], []);
+    expect(withCommands[0]?.slashCommands.map((c) => c.name)).toContain("usage-limits");
+    expect(withCommands[1]?.slashCommands.map((c) => c.name)).not.toContain("usage-limits");
+
+    const presentations = new Map([
+      [
+        EnvironmentId.make("local"),
+        {
+          entry: { target: { label: "Local" } },
+          serverConfig: { providers: [devin, goose] },
+        },
+      ],
+    ]);
+    const pools = collectLimitPools(collectLimitAccounts(presentations), Date.parse(checkedAt));
+    expect(pools).toHaveLength(1);
+    expect(pools[0]?.label).toBe("Devin");
+    expect(pools[0]?.iconUrl).toBe(devin.iconUrl);
+    expect(collectExternalUsageLinks(presentations)).toEqual([]);
+  });
+});

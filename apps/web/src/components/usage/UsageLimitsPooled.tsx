@@ -86,6 +86,7 @@ function AccountAvatar({
     return (
       <ProviderInstanceIcon
         driverKind={account.driver}
+        acpRegistryIconUrl={account.iconUrl}
         displayName={
           account.displayName ??
           providerClients.get(account.driver)?.label ??
@@ -196,6 +197,38 @@ function SegmentPopover({
           <Row label="Restores">+{reset.restoresPercent}% of pool</Row>
         ) : null}
       </div>
+      {account.limits.details && account.limits.details.length > 0 ? (
+        <div className="flex flex-col gap-1 border-t border-border/60 pt-2.5">
+          {account.limits.details.map((detail) => (
+            <div key={detail.id} className="flex items-baseline justify-between gap-3">
+              <span className="text-muted-foreground">{detail.label}</span>
+              <span
+                className={cn(
+                  "min-w-0 truncate font-medium tabular-nums",
+                  detail.tone === "warning" ? "text-warning-foreground" : "text-foreground",
+                )}
+              >
+                {detail.value}
+              </span>
+            </div>
+          ))}
+        </div>
+      ) : null}
+      {account.limits.externalUsage ? (
+        <div className="border-t border-border/60 pt-2">
+          <Button
+            size="xs"
+            variant="ghost-muted"
+            className="-ms-2"
+            onClick={() =>
+              void ensureLocalApi().shell.openExternal(account.limits.externalUsage!.url)
+            }
+          >
+            Manage usage
+            <ExternalLinkIcon className="size-3.5" aria-hidden="true" />
+          </Button>
+        </div>
+      ) : null}
       {credits && redeem ? (
         <div className="border-t border-border/60 pt-2.5 text-muted-foreground">
           <span className="flex items-center gap-3">
@@ -571,21 +604,61 @@ function PoolWindowCard({
 }
 
 function PoolSection({ pool, now }: { readonly pool: LimitPool; readonly now: number }) {
-  const color = barColor(pool.driver);
-  const label = providerClients.get(pool.driver)?.label ?? String(pool.driver);
+  const label = pool.label ?? providerClients.get(pool.driver)?.label ?? String(pool.driver);
+  const color = barColor(pool.driver, { label: pool.label ?? label, iconUrl: pool.iconUrl });
   const windows = displayLimitWindows(pool);
+  const singleAccount = pool.accounts.length === 1 ? pool.accounts[0] : undefined;
+  const externalUrls = [
+    ...new Set(
+      pool.accounts
+        .map((account) => account.limits.externalUsage?.url)
+        .filter((url): url is string => Boolean(url)),
+    ),
+  ];
+  const sharedExternalUrl = externalUrls.length === 1 ? externalUrls[0] : undefined;
   return (
     <section className="flex flex-col gap-3">
-      <h2 className="flex items-center gap-2 text-sm font-medium text-foreground">
-        <ProviderInstanceIcon
-          driverKind={pool.driver}
-          displayName={label}
-          indicatorBackground="var(--background)"
-          className="size-5"
-          iconClassName="size-4 text-foreground/80"
-        />
-        {label}
-      </h2>
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+        <h2 className="flex items-center gap-2 text-sm font-medium text-foreground">
+          <ProviderInstanceIcon
+            driverKind={pool.driver}
+            acpRegistryIconUrl={pool.iconUrl}
+            displayName={label}
+            indicatorBackground="var(--background)"
+            className="size-5"
+            iconClassName="size-4 text-foreground/80"
+          />
+          {label}
+        </h2>
+        {singleAccount?.plan ? (
+          <span className="text-xs text-muted-foreground">· {singleAccount.plan}</span>
+        ) : null}
+        {singleAccount?.email ? (
+          <>
+            <span aria-hidden className="text-xs text-muted-foreground">
+              ·
+            </span>
+            <RedactedSensitiveText
+              value={singleAccount.email}
+              ariaLabel="Toggle account email visibility"
+              revealTooltip="Click to reveal email"
+              hideTooltip="Click to hide email"
+              className="text-xs text-muted-foreground"
+            />
+          </>
+        ) : null}
+        {sharedExternalUrl ? (
+          <Button
+            variant="ghost-muted"
+            size="xs"
+            className="ms-auto"
+            onClick={() => void ensureLocalApi().shell.openExternal(sharedExternalUrl)}
+          >
+            Manage usage
+            <ExternalLinkIcon className="size-3.5" aria-hidden="true" />
+          </Button>
+        ) : null}
+      </div>
       {windows.map((window) => {
         const details = pool.driver === "cursor" ? cursorUsageWindowDetails(window.id) : undefined;
         return (
@@ -599,6 +672,22 @@ function PoolSection({ pool, now }: { readonly pool: LimitPool; readonly now: nu
           />
         );
       })}
+      {singleAccount?.limits.details && singleAccount.limits.details.length > 0 ? (
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-0.5 text-xs text-muted-foreground">
+          {singleAccount.limits.details.map((detail) => (
+            <span
+              key={detail.id}
+              className={cn(
+                "inline-flex items-baseline gap-1.5 tabular-nums",
+                detail.tone === "warning" ? "text-warning-foreground" : undefined,
+              )}
+            >
+              <span>{detail.label}:</span>
+              <span className="font-medium text-foreground">{detail.value}</span>
+            </span>
+          ))}
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -631,7 +720,7 @@ export function UsageLimitsPooled({
       ) : null}
       <SegmentPopoverContext value={segmentPopover}>
         {pools.map((pool, index) => (
-          <Fragment key={pool.driver}>
+          <Fragment key={pool.key ?? pool.driver}>
             {index === cursorPromptAt ? cursorPrompt : null}
             <PoolSection pool={pool} now={now} />
           </Fragment>
