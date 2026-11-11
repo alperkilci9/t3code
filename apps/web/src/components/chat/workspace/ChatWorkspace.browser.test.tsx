@@ -127,6 +127,30 @@ it("keeps real chat composers independent when switching pane focus", async () =
     expect(document.querySelectorAll('[data-testid="composer-editor"]')).toHaveLength(2),
   );
   expect(useChatLayoutStore.getState().layout.grid).toEqual(savedTree);
+  await userEvent.click(page.getByRole("button", { name: "Vertical", exact: true }));
+  await expect.element(page.getByText("Needs you", { exact: true })).toBeVisible();
+  await expect.element(page.getByText("Nothing needs you", { exact: true })).toBeVisible();
+  await vi.waitFor(() =>
+    expect(document.querySelectorAll('[data-testid="composer-editor"]')).toHaveLength(1),
+  );
+  expect(useChatLayoutStore.getState().layout.mode).toBe("vertical");
+  await userEvent.click(page.getByRole("button", { name: "Queue", exact: true }));
+  await vi.waitFor(() =>
+    expect(document.querySelectorAll('[data-testid="composer-editor"]')).toHaveLength(0),
+  );
+  await userEvent.click(page.getByRole("button", { name: "Split", exact: true }));
+  await vi.waitFor(() =>
+    expect(document.querySelectorAll('[data-testid="composer-editor"]')).toHaveLength(1),
+  );
+  await userEvent.click(page.getByRole("button", { name: "Focus", exact: true }));
+  await vi.waitFor(() =>
+    expect(document.querySelectorAll('[data-testid="composer-editor"]')).toHaveLength(1),
+  );
+  await expect.element(page.getByText("Needs you", { exact: true })).not.toBeInTheDocument();
+  await userEvent.click(page.getByRole("button", { name: "Grid", exact: true }));
+  await vi.waitFor(() =>
+    expect(document.querySelectorAll('[data-testid="composer-editor"]')).toHaveLength(2),
+  );
   await userEvent.click(b.getByTestId("composer-editor"));
   await userEvent.keyboard("{Enter}");
   await vi.waitFor(() =>

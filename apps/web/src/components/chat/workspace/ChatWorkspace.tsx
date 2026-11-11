@@ -12,7 +12,7 @@ import { useStableCallback } from "../../../hooks/useStableCallback";
 import { requestWorkspaceFocus } from "../../../lib/workspaceFocus";
 import { revealChatColumn } from "../../../lib/revealChatColumn";
 import { randomUUID } from "../../../lib/utils";
-import { targetKey, type PaneId } from "../../../chatLayout";
+import { isChatSplitActive, targetKey, type PaneId } from "../../../chatLayout";
 import { useChatLayoutStore } from "../../../chatLayoutStore";
 import { useRightPanelStore } from "../../../rightPanelStore";
 import { useComposerHandleContext, type ComposerHandleRef } from "../../../composerHandleContext";
@@ -37,7 +37,7 @@ export function ChatWorkspace({
 }) {
   const layout = useChatLayoutStore((state) => state.layout);
   const width = useSyncExternalStore(subscribeWidth, () => window.innerWidth);
-  const split = layout.mode !== "single" && width > 980;
+  const split = isChatSplitActive(layout.mode, width);
   const navigate = useNavigate();
   const parentComposer = useComposerHandleContext();
   const [handles] = useState(() => new Map<PaneId, ComposerHandleRef>());

@@ -1,9 +1,9 @@
-import type { ChatLayout, ChatPanePlacement, PaneId } from "../../../chatLayout";
+import type { ChatLayout, ChatPanePlacement, ChatViewMode, PaneId } from "../../../chatLayout";
 export type ChatPaneDrop = ChatPanePlacement | { kind: "replace"; paneId: PaneId };
 export type DropPoint = { x: number; y: number };
 export type DropRect = { left: number; top: number; right: number; bottom: number };
 export type ChatPaneDropGeometry = {
-  mode: "grid" | "columns";
+  mode: ChatViewMode;
   append: DropRect | null;
   panes: { paneId: PaneId; rect: DropRect }[];
   insertBefore: { paneId: PaneId; rect: DropRect }[];

@@ -9,6 +9,7 @@ import {
 } from "../../../chatLayout";
 import { useChatLayoutStore } from "../../../chatLayoutStore";
 import { ChatPaneResizeHandle } from "./ChatPaneResizeHandle";
+import { VerticalLayout } from "./VerticalLayout";
 
 function GridNode({
   node,
@@ -124,6 +125,9 @@ export function ChatPaneLayouts({
     root.querySelectorAll("[data-pane-viewport]").forEach((node) => observer.observe(node));
     return () => observer.disconnect();
   }, [root, layout.mode, paneKey]);
+  if (layout.mode === "vertical") {
+    return <VerticalLayout layout={layout} renderPane={renderPane} />;
+  }
   if (layout.mode === "grid" && layout.grid) {
     const minimum = minimumChatSplitSize(layout.grid);
     return (

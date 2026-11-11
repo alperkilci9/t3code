@@ -3,7 +3,8 @@ import { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { DraftId } from "./composerDraftStore";
 import type { ThreadRouteTarget } from "./threadRoutes";
 
-export type ChatViewMode = "single" | "grid" | "columns";
+export type ChatViewMode = "single" | "grid" | "columns" | "vertical";
+export type VerticalView = "queue" | "split" | "focus";
 export type PaneId = string;
 export type ChatPane = { id: PaneId; target: ThreadRouteTarget };
 export type ChatSplit =
@@ -24,6 +25,8 @@ export type ChatLayout = {
   grid: ChatSplit | null;
   columnWidths: Record<PaneId, number>;
   splitPanelOpen: boolean;
+  stackRatio: number;
+  verticalView: VerticalView;
 };
 export type ChatPanePlacement =
   | { kind: "append" }
@@ -37,11 +40,20 @@ export type ChatLayoutAction =
   | { type: "close"; paneId: PaneId }
   | { type: "resize-split"; splitId: string; ratio: number; extent: number }
   | { type: "resize-column"; paneId: PaneId; width: number }
+  | { type: "resize-stack"; ratio: number }
+  | { type: "set-vertical-view"; view: VerticalView }
   | { type: "set-panel-open"; open: boolean };
 
 export const CHAT_PANE_MIN_WIDTH = 320;
 const CHAT_PANE_MIN_HEIGHT = 220;
 export const CHAT_PANE_HANDLE_SIZE = 6;
+const STACK_RATIO_DEFAULT = 0.3;
+const STACK_RATIO_MIN = 0.12;
+const STACK_RATIO_MAX = 0.7;
+const clampStackRatio = (ratio: number): number =>
+  Number.isFinite(ratio)
+    ? Math.max(STACK_RATIO_MIN, Math.min(STACK_RATIO_MAX, ratio))
+    : STACK_RATIO_DEFAULT;
 export const initialChatLayout = (): ChatLayout => ({
   mode: "single",
   panes: [],
@@ -50,7 +62,14 @@ export const initialChatLayout = (): ChatLayout => ({
   grid: null,
   columnWidths: {},
   splitPanelOpen: false,
+  stackRatio: STACK_RATIO_DEFAULT,
+  verticalView: "split",
 });
+// Vertical keeps only the focused pane on screen, so it stays useful on a
+// narrower portrait window than the Grid/Columns threshold.
+export function isChatSplitActive(mode: ChatViewMode, width: number): boolean {
+  return mode === "vertical" ? width > 520 : mode !== "single" && width > 980;
+}
 export const targetKey = (target: ThreadRouteTarget): string =>
   target.kind === "server"
     ? `server:${scopedThreadKey(target.threadRef)}`
@@ -241,6 +260,14 @@ export function reduceChatLayout(layout: ChatLayout, action: ChatLayoutAction): 
               [action.paneId]: Math.max(CHAT_PANE_MIN_WIDTH, action.width),
             },
           };
+    case "resize-stack":
+      return !Number.isFinite(action.ratio)
+        ? layout
+        : { ...layout, stackRatio: clampStackRatio(action.ratio) };
+    case "set-vertical-view":
+      return layout.verticalView === action.view
+        ? layout
+        : { ...layout, verticalView: action.view };
     case "resize-split": {
       if (
         !Number.isFinite(action.ratio) ||
@@ -346,7 +373,14 @@ export function normalizeChatLayout(input: unknown): ChatLayout {
   ];
   const widths = record(data.columnWidths);
   return reconcile({
-    mode: data.mode === "grid" || data.mode === "columns" ? data.mode : "single",
+    mode:
+      data.mode === "grid"
+        ? "grid"
+        : data.mode === "columns"
+          ? "columns"
+          : data.mode === "vertical" || data.mode === "stack"
+            ? "vertical"
+            : "single",
     panes,
     recentPaneIds,
     focusedPaneId:
@@ -355,6 +389,13 @@ export function normalizeChatLayout(input: unknown): ChatLayout {
         : (recentPaneIds[0] ?? null),
     grid: tree(data.grid),
     splitPanelOpen: data.splitPanelOpen === true,
+    stackRatio: clampStackRatio(typeof data.stackRatio === "number" ? data.stackRatio : Number.NaN),
+    verticalView:
+      data.verticalView === "queue" ||
+      data.verticalView === "split" ||
+      data.verticalView === "focus"
+        ? data.verticalView
+        : "split",
     columnWidths: Object.fromEntries(
       panes.map((p) => [
         p.id,

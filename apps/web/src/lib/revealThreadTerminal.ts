@@ -1,5 +1,6 @@
 import type { ScopedThreadRef } from "@t3tools/contracts";
 
+import { isChatSplitActive } from "../chatLayout";
 import { selectThreadRightPanelState, useRightPanelStore } from "../rightPanelStore";
 import { useTerminalUiStateStore } from "../terminalUiStateStore";
 import { focusTerminalOnNavigation } from "./terminalFocus";
@@ -14,7 +15,12 @@ export function revealThreadTerminal(threadRef: ScopedThreadRef, terminalId: str
       entry.target.threadRef.environmentId === threadRef.environmentId &&
       entry.target.threadRef.threadId === threadRef.threadId,
   );
-  if (layout.mode !== "single" && (typeof window === "undefined" || window.innerWidth > 980)) {
+  if (
+    isChatSplitActive(
+      layout.mode,
+      typeof window === "undefined" ? Number.POSITIVE_INFINITY : window.innerWidth,
+    )
+  ) {
     panels.openTerminal(threadRef, terminalId);
     useTerminalUiStateStore.getState().closeTerminal(threadRef, terminalId);
     if (pane) useChatLayoutStore.getState().dispatch({ type: "focus", paneId: pane.id });

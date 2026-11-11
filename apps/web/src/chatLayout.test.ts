@@ -3,6 +3,7 @@ import { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { expect, it } from "vite-plus/test";
 import {
   initialChatLayout,
+  isChatSplitActive,
   normalizeChatLayout,
   reduceChatLayout,
   selectGridPaneIds,
@@ -47,6 +48,19 @@ it("keeps five columns and their widths through Grid and Single", () => {
   state = reduceChatLayout(state, { type: "set-mode", mode: "columns" });
   expect(state.panes.map((p) => p.id)).toEqual(["A", "B", "C", "D", "E"]);
   expect(state.columnWidths.A).toBe(570);
+  state = reduceChatLayout(state, { type: "set-mode", mode: "vertical" });
+  expect(state.mode).toBe("vertical");
+  expect(state.panes.map((p) => p.id)).toEqual(["A", "B", "C", "D", "E"]);
+  expect(state.focusedPaneId).toBe("E");
+  state = reduceChatLayout(state, { type: "set-vertical-view", view: "focus" });
+  expect(state.verticalView).toBe("focus");
+  state = reduceChatLayout(state, { type: "set-mode", mode: "columns" });
+  expect(state.panes.map((p) => p.id)).toEqual(["A", "B", "C", "D", "E"]);
+  expect(state.columnWidths.A).toBe(570);
+  expect(state.grid).toEqual(tree);
+  state = reduceChatLayout(state, { type: "set-mode", mode: "vertical" });
+  expect(state.verticalView).toBe("focus");
+  expect(state.panes.map((p) => p.id)).toEqual(["A", "B", "C", "D", "E"]);
 });
 it("does not reshuffle a grid when focus changes among its leaves", () => {
   const before = open(["A", "B", "C"], "grid");
@@ -157,6 +171,10 @@ it("clamps resizing to descendant minimums and ignores non-finite values", () =>
   });
   expect(after.grid?.kind === "split" ? after.grid.ratio : 0).toBeCloseTo(0.68);
   expect(reduceChatLayout(state, { type: "resize-column", paneId: "A", width: NaN })).toBe(state);
+  expect(reduceChatLayout(state, { type: "resize-stack", ratio: 0.95 }).stackRatio).toBe(0.7);
+  expect(reduceChatLayout(state, { type: "resize-stack", ratio: 0.05 }).stackRatio).toBe(0.12);
+  expect(reduceChatLayout(state, { type: "resize-stack", ratio: 0.45 }).stackRatio).toBe(0.45);
+  expect(reduceChatLayout(state, { type: "resize-stack", ratio: Number.NaN })).toBe(state);
 });
 it("normalizes corrupt saved layouts while preserving valid panes", () => {
   const valid = open(["A", "B"]);
@@ -172,4 +190,32 @@ it("normalizes corrupt saved layouts while preserving valid panes", () => {
   expect(state.focusedPaneId).toBe("B");
   expect(leaves(state.grid).sort()).toEqual(["A", "B"]);
   expect(normalizeChatLayout(null)).toEqual(initialChatLayout());
+  const stacked = normalizeChatLayout({ ...valid, mode: "vertical", stackRatio: 0.95 });
+  expect(stacked.mode).toBe("vertical");
+  expect(stacked.stackRatio).toBe(0.7);
+  expect(normalizeChatLayout({ ...valid, mode: "vertical", stackRatio: 0.05 }).stackRatio).toBe(
+    0.12,
+  );
+  expect(normalizeChatLayout({ ...valid, mode: "vertical", stackRatio: 0.45 }).stackRatio).toBe(
+    0.45,
+  );
+  expect(
+    normalizeChatLayout({ ...valid, mode: "vertical", stackRatio: Number.NaN }).stackRatio,
+  ).toBe(0.3);
+  expect(normalizeChatLayout({ ...valid, mode: "stack" }).mode).toBe("vertical");
+  expect(
+    normalizeChatLayout({ ...valid, mode: "vertical", verticalView: "queue" }).verticalView,
+  ).toBe("queue");
+  expect(
+    normalizeChatLayout({ ...valid, mode: "vertical", verticalView: "bogus" }).verticalView,
+  ).toBe("split");
+  expect(normalizeChatLayout({ ...valid, mode: "vertical" }).verticalView).toBe("split");
+});
+it("activates Vertical at a narrower width than Grid and Columns", () => {
+  expect(isChatSplitActive("vertical", 520)).toBe(false);
+  expect(isChatSplitActive("vertical", 521)).toBe(true);
+  expect(isChatSplitActive("grid", 980)).toBe(false);
+  expect(isChatSplitActive("grid", 981)).toBe(true);
+  expect(isChatSplitActive("columns", 981)).toBe(true);
+  expect(isChatSplitActive("single", 1600)).toBe(false);
 });

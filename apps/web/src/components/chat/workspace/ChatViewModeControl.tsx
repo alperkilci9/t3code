@@ -6,14 +6,15 @@ export function ChatViewModeControl() {
   return (
     <ToggleGroup
       aria-label="Chat view mode"
+      size="compact"
       value={[mode]}
       onValueChange={(values) => {
         const next = values[0];
-        if (next === "single" || next === "grid" || next === "columns")
+        if (next === "single" || next === "grid" || next === "columns" || next === "vertical")
           useChatLayoutStore.getState().dispatch({ type: "set-mode", mode: next });
       }}
     >
-      {(["single", "grid", "columns"] as const).map((value) => (
+      {(["single", "grid", "columns", "vertical"] as const).map((value) => (
         <Toggle
           key={value}
           value={value}
