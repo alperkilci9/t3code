@@ -10,7 +10,10 @@ import {
   type PersistedUiState,
   persistState,
   reorderProjects,
+  persistWindowSidebarScopeKeys,
+  resolveInitialWindowSidebarScopeKeys,
   resolveProjectExpanded,
+  WINDOW_SIDEBAR_SCOPE_STORAGE_KEY,
   setProjectExpanded,
   type UiState,
 } from "./uiStateStore";
@@ -272,5 +275,65 @@ describe("uiStateStore persistence", () => {
       parsePersistedState({ sidebarProjectScopeKey: "github.com/pingdotgg/t3code" })
         .sidebarProjectScopeKeys,
     ).toEqual(["github.com/pingdotgg/t3code"]);
+  });
+});
+
+describe("per-window sidebar project scope", () => {
+  it("seeds sessionStorage from localStorage default and isolates subsequent window reloads", () => {
+    const map = new Map<string, string>();
+    const fakeSessionStorage = {
+      getItem: (key: string) => map.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        map.set(key, value);
+      },
+    };
+
+    const initial = resolveInitialWindowSidebarScopeKeys(["local:proj-a"], {
+      search: "",
+      sessionStorage: fakeSessionStorage,
+    });
+    expect(initial).toEqual(["local:proj-a"]);
+    expect(map.get(WINDOW_SIDEBAR_SCOPE_STORAGE_KEY)).toBe(JSON.stringify(["local:proj-a"]));
+
+    // Even if another window changes the localStorage default to proj-b, this window keeps proj-a.
+    const afterReload = resolveInitialWindowSidebarScopeKeys(["local:proj-b"], {
+      search: "",
+      sessionStorage: fakeSessionStorage,
+    });
+    expect(afterReload).toEqual(["local:proj-a"]);
+
+    persistWindowSidebarScopeKeys(["local:proj-c"], fakeSessionStorage);
+    expect(
+      resolveInitialWindowSidebarScopeKeys(["local:proj-b"], {
+        search: "",
+        sessionStorage: fakeSessionStorage,
+      }),
+    ).toEqual(["local:proj-c"]);
+  });
+
+  it("applies ?windowProjectScope boot parameter over existing defaults", () => {
+    const map = new Map<string, string>([
+      [WINDOW_SIDEBAR_SCOPE_STORAGE_KEY, JSON.stringify(["local:proj-a"])],
+    ]);
+    const fakeSessionStorage = {
+      getItem: (key: string) => map.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        map.set(key, value);
+      },
+    };
+
+    expect(
+      resolveInitialWindowSidebarScopeKeys(["local:proj-a"], {
+        search: "?windowProjectScope=local%3Aproj-b",
+        sessionStorage: fakeSessionStorage,
+      }),
+    ).toEqual(["local:proj-b"]);
+
+    expect(
+      resolveInitialWindowSidebarScopeKeys(["local:proj-b"], {
+        search: "?windowProjectScope=all",
+        sessionStorage: fakeSessionStorage,
+      }),
+    ).toEqual([]);
   });
 });

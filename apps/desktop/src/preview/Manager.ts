@@ -535,6 +535,7 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
   const annotationThemeRef = yield* Ref.make(DEFAULT_ANNOTATION_THEME);
   const annotationSendEnabled = new Map<string, boolean>();
   const mainWindowRef = yield* Ref.make<Option.Option<BrowserWindow>>(Option.none());
+  const hostWindows = new Set<BrowserWindow>();
   const tabsRef = yield* SynchronizedRef.make<ReadonlyMap<string, PreviewTabState>>(new Map());
   const attachedRef = yield* Ref.make<ReadonlyMap<number, ManagedListeners>>(new Map());
   const listenersRef = yield* Ref.make<ReadonlySet<Listener>>(new Set());
@@ -657,9 +658,16 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
     );
   });
   const setFrameCaptureBackgroundThrottling = Effect.fnUntraced(function* (enabled: boolean) {
-    const mainWindow = yield* Ref.get(mainWindowRef);
-    if (Option.isNone(mainWindow)) return;
-    yield* setWindowBackgroundThrottling(mainWindow.value, enabled);
+    const targets =
+      hostWindows.size > 0
+        ? [...hostWindows]
+        : Option.match(yield* Ref.get(mainWindowRef), {
+            onNone: () => [],
+            onSome: (window) => [window],
+          });
+    for (const window of targets) {
+      yield* setWindowBackgroundThrottling(window, enabled);
+    }
   });
   const setFrameCaptureWebContentsBackgroundThrottling = Effect.fnUntraced(function* (
     wc: Electron.WebContents,
@@ -1586,13 +1594,22 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
         if (sessions.size > 0) {
           yield* setWindowBackgroundThrottling(window, false);
         }
+        hostWindows.add(window);
         yield* Ref.set(mainWindowRef, Option.some(window));
         currentMainWindow = window;
         frameCaptureWindowOpen = true;
         window.once("closed", () => {
+          hostWindows.delete(window);
+          if (hostWindows.size > 0) {
+            const remaining = [...hostWindows].at(-1);
+            currentMainWindow = remaining;
+            void runFork(Ref.set(mainWindowRef, Option.fromNullishOr(remaining)));
+            return;
+          }
           if (currentMainWindow !== window) return;
           currentMainWindow = undefined;
           frameCaptureWindowOpen = false;
+          void runFork(Ref.set(mainWindowRef, Option.none()));
           mainWindowCleanupFiber = runFork(
             Effect.all([closeAllPictureInPicture(), stopAllRecordings()], {
               concurrency: "unbounded",
@@ -1745,13 +1762,17 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
       return yield* new PreviewTabNotFoundError({ tabId });
     }
     const wc = webContents.fromId(webContentsId);
+    if (!wc || wc.isDestroyed() || wc.getType() !== "webview") {
+      return yield* new PreviewWebContentsNotFoundError({ tabId, webContentsId });
+    }
     const mainWindow = yield* Ref.get(mainWindowRef);
-    if (
-      !wc ||
-      wc.isDestroyed() ||
-      wc.getType() !== "webview" ||
-      (Option.isSome(mainWindow) && wc.hostWebContents !== mainWindow.value.webContents)
-    ) {
+    const validHost =
+      hostWindows.size > 0
+        ? [...hostWindows].some(
+            (candidate) => !candidate.isDestroyed() && wc.hostWebContents === candidate.webContents,
+          )
+        : Option.isNone(mainWindow) || wc.hostWebContents === mainWindow.value.webContents;
+    if (!validHost) {
       return yield* new PreviewWebContentsNotFoundError({ tabId, webContentsId });
     }
     yield* rendererHistory.register(wc, { surface: "preview", tabId });

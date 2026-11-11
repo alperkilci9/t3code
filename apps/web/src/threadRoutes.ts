@@ -65,6 +65,10 @@ export function buildThreadRouteParams(ref: ScopedThreadRef): {
   };
 }
 
+export function buildThreadRoutePath(ref: ScopedThreadRef): string {
+  return `/${encodeURIComponent(ref.environmentId)}/${encodeURIComponent(ref.threadId)}`;
+}
+
 /** Whether a (decoded) location pathname is `ref`'s own thread route, `/$environmentId/$threadId`. */
 export function isThreadRoutePathname(pathname: string, ref: ScopedThreadRef): boolean {
   const { environmentId, threadId } = buildThreadRouteParams(ref);

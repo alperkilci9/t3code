@@ -74,4 +74,18 @@ describe("buildThreadActionMenuItems", () => {
     expect(items.find((item) => item.id === "archive")?.disabled).toBe(true);
     expect(items.find((item) => item.id === "turn-into-project")?.disabled).toBe(true);
   });
+
+  it("includes Open in new window even without operate permission when desktop multi-window is available", () => {
+    const items = buildThreadActionMenuItems({
+      ...baseState,
+      canOperate: false,
+      canOpenInNewWindow: true,
+    });
+    const openItem = items.find((item) => item.id === "open-in-new-window");
+    expect(openItem).toEqual({
+      id: "open-in-new-window",
+      label: "Open in new window",
+      icon: "app-window",
+    });
+  });
 });

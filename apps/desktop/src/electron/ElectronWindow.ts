@@ -112,8 +112,14 @@ export class ElectronWindow extends Context.Service<
     /** Auxiliary windows are never returned as the main-or-first fallback. */
     readonly create: (
       options: Electron.BrowserWindowConstructorOptions,
-      behavior?: { readonly auxiliary?: boolean },
+      behavior?: { readonly auxiliary?: boolean; readonly appWindow?: boolean },
     ) => Effect.Effect<Electron.BrowserWindow, ElectronWindowCreateError>;
+    readonly findAppWindowByWebContentsId?: (
+      webContentsId: number,
+    ) => Effect.Effect<Option.Option<Electron.BrowserWindow>>;
+    readonly findAppWindowById?: (
+      windowId: number,
+    ) => Effect.Effect<Option.Option<Electron.BrowserWindow>>;
     readonly main: Effect.Effect<Option.Option<Electron.BrowserWindow>>;
     readonly currentMainOrFirst: Effect.Effect<Option.Option<Electron.BrowserWindow>>;
     readonly focusedMainOrFirst: Effect.Effect<Option.Option<Electron.BrowserWindow>>;
@@ -144,6 +150,8 @@ export const make = Effect.gen(function* () {
   yield* Effect.addFinalizer(() => Effect.sync(() => windowsForegroundFocus?.close()));
   const mainWindowRef = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
   const auxiliaryWindows = new WeakSet<Electron.BrowserWindow>();
+  const appWindows = new WeakSet<Electron.BrowserWindow>();
+  let hasAppWindows = false;
 
   const listWindows = Effect.try({
     try: () => Electron.BrowserWindow.getAllWindows(),
@@ -185,7 +193,9 @@ export const make = Effect.gen(function* () {
     }
 
     const first = Option.fromNullishOr(
-      (yield* listWindows).find((window) => !auxiliaryWindows.has(window)) ?? null,
+      (yield* listWindows).find(
+        (window) => !auxiliaryWindows.has(window) && (!hasAppWindows || appWindows.has(window)),
+      ) ?? null,
     );
     if (Option.isNone(first) || (yield* isWindowDestroyed(first.value))) {
       return Option.none<Electron.BrowserWindow>();
@@ -205,7 +215,12 @@ export const make = Effect.gen(function* () {
           cause,
         }),
     }).pipe(Effect.orDie);
-    if (Option.isSome(focused) && !(yield* isWindowDestroyed(focused.value))) {
+    if (
+      Option.isSome(focused) &&
+      !(yield* isWindowDestroyed(focused.value)) &&
+      !auxiliaryWindows.has(focused.value) &&
+      (!hasAppWindows || appWindows.has(focused.value))
+    ) {
       return focused;
     }
     return yield* currentMainOrFirst;
@@ -240,15 +255,41 @@ export const make = Effect.gen(function* () {
         try: () => {
           const window = new Electron.BrowserWindow(options);
           if (behavior?.auxiliary === true) auxiliaryWindows.add(window);
+          if (behavior?.appWindow === true) {
+            appWindows.add(window);
+            hasAppWindows = true;
+          }
           return window;
         },
         catch: (cause) => new ElectronWindowCreateError({ options: diagnosticOptions, cause }),
       });
     }),
+    findAppWindowByWebContentsId: Effect.fn("ElectronWindow.findAppWindowByWebContentsId")(
+      function* (webContentsId) {
+        for (const window of yield* listWindows) {
+          if (yield* isWindowDestroyed(window)) continue;
+          if (auxiliaryWindows.has(window)) continue;
+          if (hasAppWindows && !appWindows.has(window)) continue;
+          if (window.webContents.id === webContentsId) return Option.some(window);
+        }
+        return Option.none<Electron.BrowserWindow>();
+      },
+    ),
+    findAppWindowById: Effect.fn("ElectronWindow.findAppWindowById")(function* (windowId) {
+      for (const window of yield* listWindows) {
+        if (yield* isWindowDestroyed(window)) continue;
+        if (auxiliaryWindows.has(window)) continue;
+        if (hasAppWindows && !appWindows.has(window)) continue;
+        if (window.id === windowId) return Option.some(window);
+      }
+      return Option.none<Electron.BrowserWindow>();
+    }),
     main: liveMain,
     currentMainOrFirst,
     focusedMainOrFirst,
     setMain: Effect.fn("ElectronWindow.setMain")(function (window) {
+      appWindows.add(window);
+      hasAppWindows = true;
       return Ref.set(mainWindowRef, Option.some(window));
     }),
     clearMain: Effect.fn("ElectronWindow.clearMain")(function (window) {

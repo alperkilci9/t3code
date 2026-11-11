@@ -53,6 +53,7 @@ import {
 } from "@t3tools/contracts";
 import { useLocation, useNavigate } from "@tanstack/react-router";
 import {
+  AppWindowIcon,
   ArrowLeftIcon,
   BugIcon,
   ChartNoAxesColumnIcon,
@@ -169,6 +170,7 @@ import {
   newProjectId,
 } from "../lib/utils";
 import { buildThreadRouteParams } from "../threadRoutes";
+import { useUiStateStore } from "../uiStateStore";
 import { useAvailableSettingsSearchItems } from "./settings/useAvailableSettingsSearchItems";
 import {
   applyWslEnvironmentConfiguration,
@@ -1267,6 +1269,22 @@ function OpenCommandPaletteDialog(props: {
       icon: <SquarePenIcon className={ITEM_ICON_CLASS} />,
       addonIcon: <SquarePenIcon className={ADDON_ICON_CLASS} />,
       groups: [{ value: NEW_THREAD_IN_GROUP, label: "Projects", items: projectThreadItems }],
+    });
+  }
+
+  if (typeof window !== "undefined" && typeof window.desktopBridge?.openNewWindow === "function") {
+    actionItems.push({
+      kind: "action",
+      value: "action:open-new-window",
+      searchTerms: ["new window", "second window", "monitor", "multi window", "open window"],
+      title: "Open New Window",
+      icon: <AppWindowIcon className={ITEM_ICON_CLASS} />,
+      run: async () => {
+        const scopeKeys = useUiStateStore.getState().sidebarProjectScopeKeys;
+        await window.desktopBridge?.openNewWindow?.(
+          scopeKeys.length === 1 && scopeKeys[0] ? { projectScopeKey: scopeKeys[0] } : undefined,
+        );
+      },
     });
   }
 

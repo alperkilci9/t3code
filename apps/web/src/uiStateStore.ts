@@ -4,6 +4,7 @@ import { create } from "zustand";
 import { normalizeProjectPathForComparison } from "@t3tools/client-runtime/state/projects";
 
 export const PERSISTED_STATE_KEY = "t3code:ui-state:v1";
+export const WINDOW_SIDEBAR_SCOPE_STORAGE_KEY = "t3code:window-sidebar-scope:v1";
 const THREAD_CHANGED_FILES_EXPANSION_VERSION = 2;
 const LEGACY_PERSISTED_STATE_KEYS = [
   "t3code:renderer-state:v8",
@@ -160,7 +161,65 @@ export function parsePersistedState(parsed: PersistedUiState): UiState {
   };
 }
 
-function readPersistedState(): UiState {
+export function resolveInitialWindowSidebarScopeKeys(
+  defaultScopeKeys: readonly string[],
+  options?: {
+    readonly search?: string | undefined;
+    readonly sessionStorage?: Pick<Storage, "getItem" | "setItem"> | null | undefined;
+  },
+): string[] {
+  const sanitizedDefault = sanitizeStringArray(defaultScopeKeys);
+  const search = options?.search ?? (typeof window !== "undefined" ? window.location.search : "");
+  const storage =
+    options?.sessionStorage !== undefined
+      ? options.sessionStorage
+      : typeof window !== "undefined"
+        ? window.sessionStorage
+        : null;
+
+  if (search) {
+    try {
+      const param = new URLSearchParams(search).get("windowProjectScope")?.trim();
+      if (param) {
+        const fromParam = param === "all" ? [] : [param];
+        try {
+          storage?.setItem(WINDOW_SIDEBAR_SCOPE_STORAGE_KEY, JSON.stringify(fromParam));
+        } catch {}
+        return fromParam;
+      }
+    } catch {}
+  }
+
+  if (storage) {
+    try {
+      const rawSessionScope = storage.getItem(WINDOW_SIDEBAR_SCOPE_STORAGE_KEY);
+      if (rawSessionScope !== null) {
+        const parsed = JSON.parse(rawSessionScope) as unknown;
+        if (Array.isArray(parsed)) {
+          return sanitizeStringArray(parsed);
+        }
+      }
+      storage.setItem(WINDOW_SIDEBAR_SCOPE_STORAGE_KEY, JSON.stringify(sanitizedDefault));
+    } catch {}
+  }
+
+  return sanitizedDefault;
+}
+
+export function persistWindowSidebarScopeKeys(
+  projectKeys: readonly string[],
+  storage?: Pick<Storage, "setItem"> | null,
+): string[] {
+  const nextKeys = sanitizeStringArray(projectKeys);
+  const targetStorage =
+    storage !== undefined ? storage : typeof window !== "undefined" ? window.sessionStorage : null;
+  try {
+    targetStorage?.setItem(WINDOW_SIDEBAR_SCOPE_STORAGE_KEY, JSON.stringify(nextKeys));
+  } catch {}
+  return nextKeys;
+}
+
+function readLocalPersistedState(): UiState {
   if (typeof window === "undefined") {
     return initialState;
   }
@@ -180,6 +239,19 @@ function readPersistedState(): UiState {
   } catch {
     return initialState;
   }
+}
+
+function readPersistedState(): UiState {
+  const baseState = readLocalPersistedState();
+  if (typeof window === "undefined") {
+    return baseState;
+  }
+  return {
+    ...baseState,
+    sidebarProjectScopeKeys: resolveInitialWindowSidebarScopeKeys(
+      baseState.sidebarProjectScopeKeys,
+    ),
+  };
 }
 
 function sanitizePersistedThreadChangedFilesExpanded(
@@ -247,7 +319,23 @@ export function persistState(state: UiState): void {
   } catch {}
 }
 
-const debouncedPersistState = new Debouncer(persistState, { wait: 500 });
+let windowScopeDirtyForDefault = false;
+
+function persistWindowAwareState(state: UiState): void {
+  if (windowScopeDirtyForDefault || typeof window === "undefined") {
+    windowScopeDirtyForDefault = false;
+    persistState(state);
+    return;
+  }
+  // Preserve another window's default scope in localStorage when flushing unrelated visits/expansions.
+  const latestLocalDefaultScope = readLocalPersistedState().sidebarProjectScopeKeys;
+  persistState({
+    ...state,
+    sidebarProjectScopeKeys: latestLocalDefaultScope,
+  });
+}
+
+const debouncedPersistState = new Debouncer(persistWindowAwareState, { wait: 500 });
 
 export function markThreadVisited(state: UiState, threadId: string, visitedAt: string): UiState {
   const visitedAtMs = Date.parse(visitedAt);
@@ -453,8 +541,11 @@ export const useUiStateStore = create<UiStateStore>((set) => ({
     set((state) => setThreadChangedFilesExpanded(state, threadId, turnId, expanded)),
   setDefaultAdvertisedEndpointKey: (key) =>
     set((state) => setDefaultAdvertisedEndpointKey(state, key)),
-  setSidebarProjectScopeKeys: (projectKeys) =>
-    set((state) => setSidebarProjectScopeKeys(state, projectKeys)),
+  setSidebarProjectScopeKeys: (projectKeys) => {
+    persistWindowSidebarScopeKeys(projectKeys);
+    windowScopeDirtyForDefault = true;
+    set((state) => setSidebarProjectScopeKeys(state, projectKeys));
+  },
   setPullRequestMergeMethod: (method) => set((state) => setPullRequestMergeMethod(state, method)),
   setProjectExpanded: (projectIds, expanded) =>
     set((state) => setProjectExpanded(state, projectIds, expanded)),

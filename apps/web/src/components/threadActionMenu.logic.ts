@@ -2,6 +2,7 @@ import type { ContextMenuItem } from "@t3tools/contracts";
 import type { SnoozePreset } from "@t3tools/client-runtime/state/thread-settled";
 
 export type ThreadActionMenuId =
+  | "open-in-new-window"
   | "find"
   | "new-thread-on-branch"
   | "filter-by-project"
@@ -69,6 +70,7 @@ export function buildDraftActionMenuItems(options: {
 
 export interface ThreadActionMenuState {
   readonly canOperate: boolean;
+  readonly canOpenInNewWindow?: boolean;
   readonly canFind?: boolean;
   readonly branch: string | null;
   readonly projectFilter: {
@@ -100,6 +102,7 @@ export interface ThreadActionMenuState {
 /** Local navigation, read markers, and copying remain available to read-only clients. */
 export function threadActionRequiresOperate(action: ThreadActionMenuId): boolean {
   return ![
+    "open-in-new-window",
     "find",
     "new-thread-on-branch",
     "project-settings",
@@ -117,6 +120,9 @@ export function buildThreadActionMenuItems(
   state: ThreadActionMenuState,
 ): ReadonlyArray<ContextMenuItem<ThreadActionMenuId>> {
   const items: ReadonlyArray<ContextMenuItem<ThreadActionMenuId>> = [
+    ...(state.canOpenInNewWindow
+      ? [{ id: "open-in-new-window" as const, label: "Open in new window", icon: "app-window" }]
+      : []),
     ...(state.canFind
       ? [{ id: "find" as const, label: "Find in thread", icon: "text-search" }]
       : []),

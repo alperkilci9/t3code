@@ -102,6 +102,13 @@ contextBridge.exposeInMainWorld("desktopBridge", {
     return () => ipcRenderer.removeListener(IpcChannels.TRACKPAD_SCROLL_END_CHANNEL, handler);
   },
   revealWindow: () => ipcRenderer.invoke(IpcChannels.REVEAL_WINDOW_CHANNEL),
+  openNewWindow: (options) => ipcRenderer.invoke(IpcChannels.OPEN_NEW_WINDOW_CHANNEL, options),
+  focusWindow: async (windowId) =>
+    (await ipcRenderer.invoke(IpcChannels.FOCUS_WINDOW_CHANNEL, windowId)) === true,
+  getWindowId: () => {
+    const result = ipcRenderer.sendSync(IpcChannels.GET_WINDOW_ID_CHANNEL);
+    return typeof result === "number" ? result : null;
+  },
   getSystemLocale: () => {
     const result = ipcRenderer.sendSync(IpcChannels.GET_SYSTEM_LOCALE_CHANNEL);
     return typeof result === "string" ? result : null;

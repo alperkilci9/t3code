@@ -118,6 +118,7 @@ import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuShortcut, MenuTrigger } f
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { MiddleTruncate } from "../ui/middle-truncate";
 import { useThreadHasUnsentDraft } from "../../composerDraftStore";
+import type { OtherWindowThreadBadge } from "../../lib/windowPresence";
 
 // The fields thread rows show. Provider status pushes refresh `checkedAt`,
 // status and auth on every provider; leaving those out keeps each
@@ -590,6 +591,10 @@ type SidebarThreadRowProps = {
   onUnpin: (threadRef: ScopedThreadRef) => void;
   onAcknowledgeWoke: (threadRef: ScopedThreadRef, visitedAt: string) => void;
   onFileDropThreads?: ((threadRef: ScopedThreadRef, files: File[]) => void) | undefined;
+  otherWindowBadges?: readonly OtherWindowThreadBadge[] | undefined;
+  onFocusOtherWindow?:
+    | ((badge: OtherWindowThreadBadge, threadRef: ScopedThreadRef) => void)
+    | undefined;
 };
 
 // Mounted only while renaming, so each rename starts uncommitted.
@@ -1118,6 +1123,36 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
       <TooltipPopup side="top">Unsent draft</TooltipPopup>
     </Tooltip>
   ) : null;
+  const otherWindowIndicator =
+    props.otherWindowBadges && props.otherWindowBadges.length > 0 && !sortable?.isDragging ? (
+      <span className="inline-flex shrink-0 items-center gap-1">
+        {props.otherWindowBadges.map((badge) => (
+          <Tooltip key={badge.instanceId}>
+            <TooltipTrigger
+              render={
+                <button
+                  type="button"
+                  data-testid={`sidebar-window-badge-${thread.id}-${badge.label}`}
+                  aria-label={`Open in Window ${badge.windowNumber} (click to focus)`}
+                  onPointerDown={handleActionPointerDown}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    props.onFocusOtherWindow?.(badge, threadRef);
+                  }}
+                  className="inline-flex h-4 shrink-0 cursor-pointer items-center rounded border border-border/70 bg-muted/60 px-1 font-mono text-3xs font-semibold leading-none text-muted-foreground outline-none transition-colors hover:border-primary/50 hover:bg-primary/15 hover:text-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                />
+              }
+            >
+              {badge.label}
+            </TooltipTrigger>
+            <TooltipPopup side="top">
+              {`Open in Window ${badge.windowNumber} (click to focus)`}
+            </TooltipPopup>
+          </Tooltip>
+        ))}
+      </span>
+    ) : null;
   const showPin =
     props.isPinned && (!sortable?.isDragging || (props.dragOverPinned && props.dropVerb === null));
   const pinIndicator = showPin ? (
@@ -1279,6 +1314,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
               {draftIndicator}
               {title}
               {multiline ? titleLineIcons : null}
+              {otherWindowIndicator}
               {pinIndicator}
               {multiline ? null : terminalStatusIcon}
               {isRegeneratingTitle ? (
@@ -1465,6 +1501,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
               {/* Left of the status slot, the pin would slide when hover swaps the
                 label for the wider row controls. */}
               {pinIndicator}
+              {otherWindowIndicator}
               {props.projectDisplayName ? (
                 <span
                   className={cn("min-w-0 flex-1 truncate font-normal text-secondary-label text-xs")}

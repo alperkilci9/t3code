@@ -1,12 +1,21 @@
-import { DEFAULT_CLIENT_SETTINGS, EnvironmentId, ProjectId } from "@t3tools/contracts";
+import { presentThreadShell } from "@t3tools/client-runtime/state/models";
+import {
+  DEFAULT_CLIENT_SETTINGS,
+  type DesktopBridge,
+  EnvironmentId,
+  ProjectId,
+  ThreadId,
+} from "@t3tools/contracts";
 import { describe, expect, it, vi } from "vite-plus/test";
-import { userEvent } from "vite-plus/test/browser";
+import { page, userEvent } from "vite-plus/test/browser";
 
 import { render } from "../../test/render";
 import { openCommandPalette } from "../commandPaletteBus";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { __setClientSettingsForTests, getClientSettings } from "../hooks/useSettings";
-import { useProjects } from "../state/entities";
+import { __setWindowPresenceForTests, setWindowHideOtherThreads } from "../lib/windowPresence";
+import { useProjects, useQuietThreadShells, useThreadShell } from "../state/entities";
+import { makeThreadFixture } from "../test-fixtures";
 import type { Project } from "../types";
 import Sidebar from "./Sidebar";
 import { SidebarProvider } from "./ui/sidebar";
@@ -85,5 +94,137 @@ describe("sidebar header new thread", () => {
       expect(openCommandPalette).not.toHaveBeenCalled();
       expect(startThread).toHaveBeenCalledExactlyOnceWith(currentProjectRef);
     }
+  });
+});
+
+describe("multi-window sidebar presence and filtering", () => {
+  it("renders W1 badge with click-to-focus and hides other-window threads on demand", async () => {
+    using stack = new DisposableStack();
+    const previousSettings = getClientSettings();
+    const previousBridge = window.desktopBridge;
+    stack.defer(() => {
+      __setWindowPresenceForTests(null);
+      setWindowHideOtherThreads(false);
+      __setClientSettingsForTests(previousSettings);
+      if (previousBridge) {
+        window.desktopBridge = previousBridge;
+      } else {
+        delete window.desktopBridge;
+      }
+    });
+
+    const focusWindow = vi.fn().mockResolvedValue(true);
+    const openNewWindow = vi.fn().mockResolvedValue(undefined);
+    window.desktopBridge = {
+      ...previousBridge,
+      focusWindow,
+      openNewWindow,
+      getLocalEnvironmentEnabled: () => false,
+      getLocalEnvironmentBootstraps: () => [],
+    } as unknown as DesktopBridge;
+
+    __setClientSettingsForTests({
+      ...DEFAULT_CLIENT_SETTINGS,
+      boringSidebarEnabled: false,
+      legacySidebarEnabled: false,
+    });
+
+    const envId = EnvironmentId.make("local");
+    const proj = project("active");
+    const shellA = presentThreadShell(
+      envId,
+      makeThreadFixture({
+        id: ThreadId.make("thread-a"),
+        projectId: proj.id,
+        title: "Monitor One Thread",
+      }).source,
+    );
+    const shellB = presentThreadShell(
+      envId,
+      makeThreadFixture({
+        id: ThreadId.make("thread-b"),
+        projectId: proj.id,
+        title: "Monitor Two Thread",
+      }).source,
+    );
+
+    vi.mocked(useProjects).mockReturnValue([proj]);
+    vi.mocked(useQuietThreadShells).mockReturnValue([shellA, shellB]);
+    vi.mocked(useThreadShell).mockImplementation((ref) => {
+      if (ref?.threadId === shellA.id) return shellA;
+      if (ref?.threadId === shellB.id) return shellB;
+      return null;
+    });
+    vi.mocked(useHandleNewThread).mockReturnValue({
+      activeDraftThread: null,
+      activeThread: null,
+      defaultProjectRef: { environmentId: envId, projectId: proj.id },
+      handleNewThread: vi.fn().mockResolvedValue(null),
+      routeDraftId: null,
+      routeThreadRef: null,
+    });
+
+    __setWindowPresenceForTests({
+      selfInstanceId: "win-2",
+      selfWindowNumber: 2,
+      selfWindowLabel: "W2",
+      openWindowCount: 2,
+      otherWindowBadgesByThreadKey: new Map([
+        [
+          "local:thread-a",
+          [
+            {
+              instanceId: "win-1",
+              electronWindowId: 1,
+              windowNumber: 1,
+              label: "W1",
+            },
+          ],
+        ],
+      ]),
+      otherWindowThreadKeys: new Set(["local:thread-a"]),
+    });
+
+    await using screen = await render(
+      <SidebarProvider>
+        <Sidebar routeReveal={{ observedKey: null, pendingKey: null }} />
+      </SidebarProvider>,
+    );
+
+    await expect
+      .element(screen.getByRole("button", { name: /Monitor One Thread/ }))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("button", { name: /Monitor Two Thread/ }))
+      .toBeInTheDocument();
+
+    const w1Badge = screen.getByTestId("sidebar-window-badge-thread-a-W1");
+    await expect.element(w1Badge).toHaveTextContent("W1");
+    await userEvent.click(w1Badge);
+    expect(focusWindow).toHaveBeenCalledExactlyOnceWith(1);
+
+    const w2ScopeTrigger = screen.getByTestId("sidebar-window-scope-trigger");
+    await expect.element(w2ScopeTrigger).toHaveTextContent("W2");
+    await userEvent.click(w2ScopeTrigger);
+
+    await userEvent.click(
+      page.getByRole("menuitemcheckbox", { name: "Hide threads open in other windows" }),
+    );
+    await expect
+      .element(screen.getByRole("button", { name: /Monitor One Thread/ }))
+      .not.toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("button", { name: /Monitor Two Thread/ }))
+      .toBeInTheDocument();
+
+    // Base UI MenuCheckboxItem keeps the menu open so users can toggle filters quickly;
+    // select "All threads" directly to restore full cross-window thread visibility.
+    await userEvent.click(page.getByRole("menuitemcheckbox", { name: "All threads" }));
+    await expect
+      .element(screen.getByRole("button", { name: /Monitor One Thread/ }))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("button", { name: /Monitor Two Thread/ }))
+      .toBeInTheDocument();
   });
 });

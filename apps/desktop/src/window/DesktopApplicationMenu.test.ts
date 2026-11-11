@@ -3,6 +3,7 @@ import { assert, describe, it } from "@effect/vitest";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 
 import type * as Electron from "electron";
 
@@ -77,6 +78,8 @@ const layerDesktopWindow = (selectedAction: Deferred.Deferred<string>) =>
     createMain: Effect.die("unexpected createMain"),
     ensureMain: Effect.die("unexpected ensureMain"),
     revealOrCreateMain: Effect.die("unexpected revealOrCreateMain"),
+    openNewWindow: () =>
+      Deferred.succeed(selectedAction, "new-window").pipe(Effect.as(Option.none())),
     activate: Effect.void,
     createMainIfBackendReady: Effect.void,
     showConnectingSplash: Effect.void,
@@ -255,6 +258,27 @@ describe("DesktopApplicationMenu", () => {
 
       reload.click({} as Electron.MenuItem, {} as Electron.BrowserWindow, {} as KeyboardEvent);
       assert.equal(yield* Deferred.await(selectedAction), "main-reload");
+    }),
+  );
+
+  it.effect("registers File -> New Window with CommandOrControl+Alt+Shift+N", () =>
+    Effect.gen(function* () {
+      const selectedAction = yield* Deferred.make<string>();
+      const applicationMenuTemplate =
+        yield* Deferred.make<readonly Electron.MenuItemConstructorOptions[]>();
+
+      yield* configureMenu(selectedAction, applicationMenuTemplate, { platform: "darwin" });
+
+      const template = yield* Deferred.await(applicationMenuTemplate);
+      const fileMenu = template.find((item) => item.label === "File");
+      assert.isDefined(fileMenu);
+      const submenu = Array.isArray(fileMenu?.submenu) ? fileMenu.submenu : [];
+      const newWindowItem = submenu.find((entry) => entry.label === "New Window");
+      assert.isDefined(newWindowItem);
+      assert.equal(newWindowItem?.accelerator, "CommandOrControl+Alt+Shift+N");
+      assert.isFunction(newWindowItem?.click);
+      newWindowItem?.click?.({} as Electron.MenuItem, undefined, {} as Electron.KeyboardEvent);
+      assert.equal(yield* Deferred.await(selectedAction), "new-window");
     }),
   );
 });

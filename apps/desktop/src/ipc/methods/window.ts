@@ -38,6 +38,8 @@ import * as ElectronMenu from "../../electron/ElectronMenu.ts";
 import * as ElectronShell from "../../electron/ElectronShell.ts";
 import * as ElectronTheme from "../../electron/ElectronTheme.ts";
 import * as ElectronWindow from "../../electron/ElectronWindow.ts";
+import * as DesktopWindow from "../../window/DesktopWindow.ts";
+import { DesktopNewWindowOptionsSchema } from "@t3tools/contracts";
 import * as Electron from "electron";
 import * as MacPermissions from "../../permissions/MacPermissions.ts";
 import { safariPermissionCheck } from "../../preview/BrowserImport/SafariPermission.ts";
@@ -106,13 +108,83 @@ export const getSystemLocale = DesktopIpc.makeSyncIpcMethod({
   }),
 });
 
+const resolveSenderAppWindow = (
+  electronWindow: ElectronWindow.ElectronWindow["Service"],
+  senderId: number | undefined,
+) =>
+  senderId === undefined
+    ? Effect.succeed(Option.none<Electron.BrowserWindow>())
+    : electronWindow.main.pipe(
+        Effect.flatMap((main) => {
+          if (Option.isSome(main) && main.value.webContents.id === senderId) {
+            return Effect.succeed(main);
+          }
+          if (!electronWindow.findAppWindowByWebContentsId) {
+            return Effect.succeed(Option.none<Electron.BrowserWindow>());
+          }
+          return electronWindow
+            .findAppWindowByWebContentsId(senderId)
+            .pipe(Effect.catchDefect(() => Effect.succeed(Option.none<Electron.BrowserWindow>())));
+        }),
+      );
+
 export const getWindowFullscreenState = DesktopIpc.makeSyncIpcMethod({
   channel: IpcChannels.GET_WINDOW_FULLSCREEN_STATE_CHANNEL,
   result: Schema.Boolean,
-  handler: Effect.fn("desktop.ipc.window.getWindowFullscreenState")(function* () {
+  handler: Effect.fn("desktop.ipc.window.getWindowFullscreenState")(function* (event) {
     const electronWindow = yield* ElectronWindow.ElectronWindow;
-    const window = yield* electronWindow.currentMainOrFirst;
-    return Option.isSome(window) && window.value.isFullScreen();
+    const bySender = yield* resolveSenderAppWindow(electronWindow, event?.sender?.id);
+    const window = Option.isSome(bySender) ? bySender : yield* electronWindow.currentMainOrFirst;
+    return Option.isSome(window) && !window.value.isDestroyed() && window.value.isFullScreen();
+  }),
+});
+
+export const getWindowId = DesktopIpc.makeSyncIpcMethod({
+  channel: IpcChannels.GET_WINDOW_ID_CHANNEL,
+  result: Schema.NullOr(Schema.Number),
+  handler: Effect.fn("desktop.ipc.window.getWindowId")(function* (event) {
+    const electronWindow = yield* ElectronWindow.ElectronWindow;
+    const bySender = yield* resolveSenderAppWindow(electronWindow, event?.sender?.id);
+    if (Option.isSome(bySender) && !bySender.value.isDestroyed()) {
+      return bySender.value.id;
+    }
+    const fallback = yield* electronWindow.currentMainOrFirst;
+    return Option.isSome(fallback) && !fallback.value.isDestroyed() ? fallback.value.id : null;
+  }),
+});
+
+export const openNewWindow = DesktopIpc.makeIpcMethod({
+  channel: IpcChannels.OPEN_NEW_WINDOW_CHANNEL,
+  payload: Schema.UndefinedOr(DesktopNewWindowOptionsSchema),
+  result: Schema.Void,
+  handler: Effect.fn("desktop.ipc.window.openNewWindow")(function* (options) {
+    const desktopWindow = yield* DesktopWindow.DesktopWindow;
+    yield* desktopWindow.openNewWindow(options).pipe(Effect.ignore);
+  }),
+});
+
+export const focusWindow = DesktopIpc.makeIpcMethod({
+  channel: IpcChannels.FOCUS_WINDOW_CHANNEL,
+  payload: Schema.Number,
+  result: Schema.Boolean,
+  handler: Effect.fn("desktop.ipc.window.focusWindow")(function* (windowId, event) {
+    const electronWindow = yield* ElectronWindow.ElectronWindow;
+    const caller = yield* resolveSenderAppWindow(electronWindow, event?.sender.id);
+    if (Option.isNone(caller)) {
+      return false;
+    }
+    const target = electronWindow.findAppWindowById
+      ? yield* electronWindow.findAppWindowById(windowId)
+      : yield* electronWindow.main.pipe(
+          Effect.map((main) =>
+            Option.isSome(main) && main.value.id === windowId ? main : Option.none(),
+          ),
+        );
+    if (Option.isNone(target) || target.value.isDestroyed()) {
+      return false;
+    }
+    yield* electronWindow.reveal(target.value);
+    return true;
   }),
 });
 
@@ -320,11 +392,11 @@ export const readMedia = DesktopIpc.makeIpcMethod({
   payload: Schema.String,
   result: Schema.NullOr(DesktopMediaReadSchema),
   handler: Effect.fn("desktop.ipc.window.readMedia")(function* (url, event) {
-    const window = yield* (yield* ElectronWindow.ElectronWindow).main;
+    const electronWindow = yield* ElectronWindow.ElectronWindow;
+    const window = yield* resolveSenderAppWindow(electronWindow, event?.sender.id);
     if (
       event === undefined ||
       Option.isNone(window) ||
-      window.value.webContents.id !== event.sender.id ||
       !/^https?:$/.test(URL.parse(url)?.protocol ?? "")
     ) {
       return null;
@@ -395,13 +467,8 @@ export const pasteAsText = DesktopIpc.makeIpcMethod({
   result: Schema.Void,
   handler: Effect.fn("desktop.ipc.window.pasteAsText")(function* (_input, event) {
     const electronWindow = yield* ElectronWindow.ElectronWindow;
-    const window = yield* electronWindow.main;
-    if (
-      event === undefined ||
-      Option.isNone(window) ||
-      window.value.isDestroyed() ||
-      window.value.webContents.id !== event.sender.id
-    ) {
+    const window = yield* resolveSenderAppWindow(electronWindow, event?.sender.id);
+    if (event === undefined || Option.isNone(window) || window.value.isDestroyed()) {
       return;
     }
     const focused = Electron.webContents.getFocusedWebContents();
@@ -421,12 +488,8 @@ export const revealWindow = DesktopIpc.makeIpcMethod({
   result: Schema.Void,
   handler: Effect.fn("desktop.ipc.window.revealWindow")(function* (_input, event) {
     const electronWindow = yield* ElectronWindow.ElectronWindow;
-    const window = yield* electronWindow.main;
-    if (
-      event === undefined ||
-      Option.isNone(window) ||
-      window.value.webContents.id !== event.sender.id
-    ) {
+    const window = yield* resolveSenderAppWindow(electronWindow, event?.sender.id);
+    if (event === undefined || Option.isNone(window)) {
       return;
     }
     yield* electronWindow.reveal(window.value);

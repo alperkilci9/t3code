@@ -71,7 +71,7 @@ function makeFakeBrowserWindow() {
     copyImageAt: vi.fn(),
     focus: vi.fn(),
     isDestroyed: vi.fn(() => false),
-    getURL: vi.fn(() => "t3code-dev://app/"),
+    getURL: vi.fn(() => "studyworkspace-lab-dev://app/"),
     getZoomLevel: vi.fn(() => zoomLevel),
     getZoomFactor: vi.fn(() => 1.2 ** zoomLevel),
     setZoomLevel: vi.fn((level: number) => {
@@ -108,7 +108,7 @@ function makeFakeBrowserWindow() {
     isMaximized: vi.fn(() => false),
     isMinimized: vi.fn(() => false),
     isVisible: vi.fn(() => true),
-    loadURL: vi.fn(() => Promise.resolve()),
+    loadURL: vi.fn<(_url: string) => Promise<void>>(() => Promise.resolve()),
     maximize: vi.fn(),
     on: vi.fn((eventName: string, listener: (...args: readonly unknown[]) => void) => {
       windowListeners.set(eventName, listener);
@@ -218,6 +218,7 @@ const desktopWindowBoundsEquivalence = Schema.toEquivalence(
 
 function layerTest(input: {
   readonly window: Electron.BrowserWindow;
+  readonly secondaryWindows?: readonly Electron.BrowserWindow[];
   readonly createCount: Ref.Ref<number>;
   readonly mainWindow: Ref.Ref<Option.Option<Electron.BrowserWindow>>;
   readonly createdWindowOptions?: Electron.BrowserWindowConstructorOptions[];
@@ -274,13 +275,15 @@ function layerTest(input: {
 
   const layerElectronWindow = Layer.succeed(ElectronWindow.ElectronWindow, {
     create: (options) =>
-      Effect.sync(() => {
+      Effect.gen(function* () {
         input.createdWindowOptions?.push(options);
-      }).pipe(
-        Effect.andThen(Ref.update(input.createCount, (count) => count + 1)),
-        Effect.andThen(input.onWindowCreate ?? Effect.void),
-        Effect.as(input.window),
-      ),
+        const index = yield* Ref.getAndUpdate(input.createCount, (count) => count + 1);
+        yield* input.onWindowCreate ?? Effect.void;
+        if (index > 0 && input.secondaryWindows && input.secondaryWindows[index - 1]) {
+          return input.secondaryWindows[index - 1]!;
+        }
+        return input.window;
+      }),
     main: Ref.get(input.mainWindow),
     currentMainOrFirst: Ref.get(input.mainWindow),
     focusedMainOrFirst:
@@ -1126,9 +1129,9 @@ describe("DesktopWindow", () => {
           return yield* Effect.die("will-navigate listener was not registered");
         }
         for (const [url, expectedPrevented] of [
-          ["t3code-dev://app/threads?id=1#latest", false],
-          ["t3code-dev://other/", true],
-          ["t3code://app/", true],
+          ["studyworkspace-lab-dev://app/threads?id=1#latest", false],
+          ["studyworkspace-lab-dev://other/", true],
+          ["studyworkspace-lab://app/", true],
         ] as const) {
           const preventDefault = vi.fn();
           willNavigate({ preventDefault }, url);
@@ -1247,5 +1250,55 @@ describe("DesktopWindow", () => {
         assert.equal(onReveal.mock.calls.length, 0);
       }).pipe(Effect.provide(layer));
     }),
+  );
+
+  it.effect(
+    "opens a cascaded secondary window with route and project scope without overwriting mainWindowBounds",
+    () =>
+      Effect.gen(function* () {
+        const primaryWindow = makeFakeBrowserWindow();
+        primaryWindow.getBounds.mockReturnValue({ x: 120, y: 90, width: 1280, height: 820 });
+        primaryWindow.getNormalBounds.mockReturnValue({ x: 120, y: 90, width: 1280, height: 820 });
+        const secondaryWindow = makeFakeBrowserWindow();
+        secondaryWindow.getBounds.mockReturnValue({ x: 700, y: 200, width: 1200, height: 780 });
+        const createCount = yield* Ref.make(0);
+        const mainWindow = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
+        const createdWindowOptions: Electron.BrowserWindowConstructorOptions[] = [];
+        const mainWindowBoundsUpdates: DesktopAppSettings.DesktopWindowBounds[] = [];
+        const layer = layerTest({
+          window: primaryWindow.window,
+          secondaryWindows: [secondaryWindow.window],
+          createCount,
+          mainWindow,
+          createdWindowOptions,
+          mainWindowBoundsUpdates,
+        });
+
+        yield* Effect.gen(function* () {
+          const desktopWindow = yield* DesktopWindow.DesktopWindow;
+          yield* desktopWindow.handleBackendReady(new URL("http://127.0.0.1:3773"));
+
+          const opened = yield* desktopWindow.openNewWindow({
+            initialRoute: "/local/thread-42",
+            projectScopeKey: "local:project-b",
+          });
+          assert.isTrue(Option.isSome(opened));
+          assert.equal(Option.getOrThrow(opened), secondaryWindow.window);
+          assert.equal(yield* Ref.get(createCount), 2);
+          assert.equal(createdWindowOptions[1]?.x, 148);
+          assert.equal(createdWindowOptions[1]?.y, 118);
+          assert.equal(
+            secondaryWindow.loadURL.mock.calls[0]?.[0],
+            "studyworkspace-lab-dev://app/?windowProjectScope=local%3Aproject-b#/local/thread-42",
+          );
+
+          // Closing the secondary window while primary stays open must not overwrite mainWindowBounds.
+          secondaryWindow.windowListeners.get("close")?.();
+          yield* Effect.yieldNow;
+          assert.deepEqual(mainWindowBoundsUpdates, []);
+          yield* desktopWindow.flushMainWindowBounds;
+          assert.deepEqual(mainWindowBoundsUpdates, [{ x: 120, y: 90, width: 1280, height: 820 }]);
+        }).pipe(Effect.provide(layer));
+      }),
   );
 });

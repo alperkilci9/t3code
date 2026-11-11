@@ -1022,6 +1022,12 @@ export type DesktopMediaRead = typeof DesktopMediaReadSchema.Type;
 export const SystemSettingsPaneSchema = Schema.Literals(["full-disk-access"]);
 export type SystemSettingsPane = typeof SystemSettingsPaneSchema.Type;
 
+export const DesktopNewWindowOptionsSchema = Schema.Struct({
+  initialRoute: Schema.optional(Schema.String),
+  projectScopeKey: Schema.optional(Schema.String),
+});
+export type DesktopNewWindowOptions = typeof DesktopNewWindowOptionsSchema.Type;
+
 export interface DesktopBridge {
   getAppBranding: () => DesktopAppBranding | null;
   getRelayTelemetryEnabled: () => boolean;
@@ -1036,6 +1042,9 @@ export interface DesktopBridge {
    * only the main process can spend a notification click's activation token.
    */
   revealWindow: () => Promise<void>;
+  openNewWindow?: (options?: DesktopNewWindowOptions) => Promise<void>;
+  focusWindow?: (windowId: number) => Promise<boolean>;
+  getWindowId?: () => number | null;
   /**
    * The OS locale as a BCP-47 tag, which the renderer cannot read for itself:
    * the packaged app ships only the `en-US` Chromium locale pak, so

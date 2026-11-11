@@ -623,18 +623,34 @@ export function filterSidebarV2VisibleThreads<
   threads: readonly T[],
   scopedProjectKeys: ReadonlySet<string> | null,
   delegatedUnderParent: ReadonlySet<string>,
+  hiddenThreadKeys?: ReadonlySet<string> | null,
+  keepThreadKey?: string | null,
 ): T[] {
-  return threads.filter(
-    (thread) =>
-      thread.archivedAt === null &&
-      !isShownUnderParent(
+  return threads.filter((thread) => {
+    if (thread.archivedAt !== null) return false;
+    if (
+      isShownUnderParent(
         { environmentId: thread.environmentId, threadId: thread.id },
         thread.lineage,
         delegatedUnderParent,
-      ) &&
-      (scopedProjectKeys === null ||
-        scopedProjectKeys.has(`${thread.environmentId}:${thread.projectId}`)),
-  );
+      )
+    ) {
+      return false;
+    }
+    if (
+      scopedProjectKeys !== null &&
+      !scopedProjectKeys.has(`${thread.environmentId}:${thread.projectId}`)
+    ) {
+      return false;
+    }
+    if (hiddenThreadKeys && hiddenThreadKeys.size > 0) {
+      const key = `${thread.environmentId}:${thread.id}`;
+      if (key !== keepThreadKey && hiddenThreadKeys.has(key)) {
+        return false;
+      }
+    }
+    return true;
+  });
 }
 
 export function buildBulkTitleRegenerationContextMenuItem(input: {

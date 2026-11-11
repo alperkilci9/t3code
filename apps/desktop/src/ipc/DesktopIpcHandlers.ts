@@ -39,6 +39,9 @@ import {
   installRelayTelemetryEnabled,
   getSystemLocale,
   getWindowFullscreenState,
+  getWindowId,
+  openNewWindow,
+  focusWindow,
   openExternal,
   readMedia,
   openSystemSettings,
@@ -95,6 +98,7 @@ export const installDesktopIpcHandlers = Effect.fn("desktop.ipc.installHandlers"
   yield* installRelayTelemetryEnabled();
   yield* ipc.handleSync(getSystemLocale);
   yield* ipc.handleSync(getWindowFullscreenState);
+  yield* ipc.handleSync(getWindowId);
   yield* ipc.handleSync(getLocalEnvironmentBootstraps);
   yield* ipc.handleSync(getLocalEnvironmentEnabled);
   yield* ipc.handle(setLocalEnvironmentEnabled);
@@ -149,6 +153,8 @@ export const installDesktopIpcHandlers = Effect.fn("desktop.ipc.installHandlers"
   yield* ipc.handle(checkSystemPermission);
   yield* ipc.handle(pasteAsText);
   yield* ipc.handle(revealWindow);
+  yield* ipc.handle(openNewWindow);
+  yield* ipc.handle(focusWindow);
   yield* ipc.handle(probeRemoteEditors);
   yield* ipc.handle(getUpdateState);
   yield* ipc.handle(setUpdateChannel);

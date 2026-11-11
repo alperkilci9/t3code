@@ -41,6 +41,11 @@ const { logInfo: logUpdaterInfo } = makeComponentLogger("desktop-updater");
 
 const { logError: logMenuError } = makeComponentLogger("desktop-menu");
 
+const openNewWindowFromMenu = Effect.gen(function* () {
+  const desktopWindow = yield* DesktopWindow.DesktopWindow;
+  yield* desktopWindow.openNewWindow();
+}).pipe(Effect.withSpan("desktop.menu.openNewWindow"));
+
 const dispatchMenuAction = Effect.fn("desktop.menu.dispatchMenuAction")(function* (
   action: string,
 ): Effect.fn.Return<void, DesktopWindow.DesktopWindowError, DesktopWindow.DesktopWindow> {
@@ -139,6 +144,9 @@ export const make = Effect.gen(function* () {
     const checkForUpdatesClick = () => {
       runMenuEffect("check-for-updates", handleCheckForUpdatesMenuClick);
     };
+    const newWindowClick = () => {
+      runMenuEffect("new-window", openNewWindowFromMenu);
+    };
     const settingsClick = () => {
       runMenuEffect("open-settings", dispatchMenuAction("open-settings"));
     };
@@ -190,6 +198,12 @@ export const make = Effect.gen(function* () {
       {
         label: "File",
         submenu: [
+          {
+            label: "New Window",
+            accelerator: "CommandOrControl+Alt+Shift+N",
+            click: newWindowClick,
+          },
+          { type: "separator" },
           ...(environment.platform === "darwin"
             ? []
             : [

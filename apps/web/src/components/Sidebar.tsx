@@ -257,6 +257,24 @@ import { SidebarHeaderIconButton, SidebarThreadHeader } from "./sidebar/SidebarT
 import { TooltipProvider } from "./ui/tooltip";
 import { composerDraftHasUserContent, DraftId, useComposerDraftStore } from "../composerDraftStore";
 import { useThreadRouteTarget } from "../hooks/useThreadRouteTarget";
+import { buildThreadRoutePath } from "../threadRoutes";
+import { useChatLayoutStore } from "../chatLayoutStore";
+import {
+  focusOtherWindow,
+  useWindowHideOtherThreads,
+  useWindowPresence,
+  type OtherWindowThreadBadge,
+} from "../lib/windowPresence";
+import {
+  Menu,
+  MenuCheckboxItem,
+  MenuGroup,
+  MenuGroupLabel,
+  MenuItem,
+  MenuPopup,
+  MenuSeparator,
+  MenuTrigger,
+} from "./ui/menu";
 import {
   SidebarSearchResultRow,
   SortableThreadRow,
@@ -348,6 +366,8 @@ type SidebarOptimisticDrop = {
 interface SidebarThreadPartitionInput {
   readonly threads: readonly EnvironmentThreadShell[];
   readonly scopedProjectKeys: ReadonlySet<string> | null;
+  readonly hiddenOtherWindowThreadKeys: ReadonlySet<string> | null;
+  readonly routeRowThreadKey: string | null;
   /** Tasks linked environments run for a listed thread; they show under it. */
   readonly delegatedUnderParent: ReadonlySet<string>;
   readonly serverConfigs: ReadonlyMap<EnvironmentId, EnvironmentServerConfig>;
@@ -422,6 +442,7 @@ function useSidebarThreads(input: {
   readonly threads: readonly EnvironmentThreadShell[];
   readonly delegatedUnderParent: ReadonlySet<string>;
   readonly routeRowThreadKey: string | null;
+  readonly hiddenOtherWindowThreadKeys: ReadonlySet<string> | null;
   // Set in boring mode: the project groups to fold active threads into, in order.
   readonly folderGroups: readonly SidebarProjectSnapshot[] | null;
   // Keeps folders with no active threads, so a project the user filtered to or pinned can start one.
@@ -436,6 +457,7 @@ function useSidebarThreads(input: {
     threads,
     delegatedUnderParent,
     routeRowThreadKey,
+    hiddenOtherWindowThreadKeys,
     folderGroups,
     keepEmptyFolders: keepEmpty,
   } = input;
@@ -492,6 +514,8 @@ function useSidebarThreads(input: {
   const partition = partitionSidebarThreads({
     threads,
     scopedProjectKeys,
+    hiddenOtherWindowThreadKeys,
+    routeRowThreadKey,
     delegatedUnderParent,
     serverConfigs,
     connectedEnvironmentIds,
@@ -629,6 +653,8 @@ function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
   const {
     threads,
     scopedProjectKeys,
+    hiddenOtherWindowThreadKeys,
+    routeRowThreadKey,
     delegatedUnderParent,
     serverConfigs,
     optimisticDrop,
@@ -637,7 +663,13 @@ function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
     disconnectedEnvironmentIds,
   } = input;
   const preciseNow = new Date().toISOString();
-  const visible = filterSidebarV2VisibleThreads(threads, scopedProjectKeys, delegatedUnderParent);
+  const visible = filterSidebarV2VisibleThreads(
+    threads,
+    scopedProjectKeys,
+    delegatedUnderParent,
+    hiddenOtherWindowThreadKeys,
+    routeRowThreadKey,
+  );
   const inboxObservation = inboxReturns.observe(workingShelfEnabled ? threads : null);
   const pinned: EnvironmentThreadShell[] = [];
   const active: EnvironmentThreadShell[] = [];
@@ -1131,6 +1163,39 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
             ),
           ),
         );
+  const chatLayoutMode = useChatLayoutStore((store) => store.layout.mode);
+  const chatLayoutPanes = useChatLayoutStore((store) => store.layout.panes);
+  const windowActiveThreadKeys: string[] = [];
+  if (routeRowThreadKey !== null) {
+    windowActiveThreadKeys.push(routeRowThreadKey);
+  }
+  if (chatLayoutMode !== "single") {
+    for (const pane of chatLayoutPanes) {
+      if (pane.target.kind !== "server") continue;
+      const resolvedId = resolveSidebarRowThreadId(
+        pane.target.threadRef.threadId,
+        pane.target.threadRef.environmentId,
+        threads,
+      );
+      const paneKey = scopedThreadKey(
+        scopeThreadRef(pane.target.threadRef.environmentId, resolvedId),
+      );
+      if (!windowActiveThreadKeys.includes(paneKey)) {
+        windowActiveThreadKeys.push(paneKey);
+      }
+    }
+  }
+  const windowPresence = useWindowPresence(windowActiveThreadKeys);
+  const [hideOtherWindowThreads, setHideOtherWindowThreads] = useWindowHideOtherThreads();
+  const effectiveHiddenOtherWindowKeys =
+    hideOtherWindowThreads && windowPresence.openWindowCount >= 2
+      ? windowPresence.otherWindowThreadKeys
+      : null;
+  const handleFocusOtherWindow = useStableCallback(
+    (badge: OtherWindowThreadBadge, targetRef: ScopedThreadRef) => {
+      focusOtherWindow(badge, scopedThreadKey(targetRef));
+    },
+  );
   const isSearchingThreads = threadSearchQuery.trim().length > 0;
 
   // History, the palette and links can open a thread the scope hides or the list
@@ -1352,6 +1417,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     threads,
     delegatedUnderParent,
     routeRowThreadKey,
+    hiddenOtherWindowThreadKeys: effectiveHiddenOtherWindowKeys,
     folderGroups: boringSidebarEnabled
       ? scopedProjectGroups.length === 0
         ? // An archived project keeps a folder for its active threads, below the rest.
@@ -2622,6 +2688,9 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         const clicked = await settlePromise(() =>
           api.contextMenu.show(
             buildThreadActionMenuItems({
+              canOpenInNewWindow:
+                typeof window !== "undefined" &&
+                typeof window.desktopBridge?.openNewWindow === "function",
               canOperate: readEnvironmentScope(
                 threadRef.environmentId,
                 AuthOrchestrationOperateScope,
@@ -2674,6 +2743,14 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
           return;
         }
         switch (clicked.value) {
+          case "open-in-new-window":
+            void window.desktopBridge?.openNewWindow?.({
+              initialRoute: buildThreadRoutePath(threadRef),
+              ...(projectScopeKeys.length === 1 && projectScopeKeys[0]
+                ? { projectScopeKey: projectScopeKeys[0] }
+                : {}),
+            });
+            return;
           case "filter-by-project":
             if (threadProjectGroup) {
               setProjectScopeKeys(
@@ -2993,6 +3070,109 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
           <SidebarGroup className="z-[1]">
             <SidebarThreadHeader
               hasProjects={projectGroups.length > 0}
+              windowScope={
+                windowPresence.openWindowCount >= 2 || hideOtherWindowThreads ? (
+                  <Menu>
+                    <MenuTrigger
+                      render={
+                        <button
+                          type="button"
+                          data-testid="sidebar-window-scope-trigger"
+                          aria-label={`Window ${windowPresence.selfWindowNumber} thread view options`}
+                          className={cn(
+                            "mr-0.5 inline-flex h-6 shrink-0 cursor-pointer items-center gap-1 rounded-md border px-1.5 font-mono text-2xs font-semibold leading-none transition-colors outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+                            hideOtherWindowThreads
+                              ? "border-primary/45 bg-primary/12 text-primary hover:bg-primary/18"
+                              : "border-sidebar-border/80 bg-sidebar-row-hover/60 text-sidebar-muted-foreground hover:bg-sidebar-row-hover hover:text-sidebar-foreground",
+                          )}
+                        />
+                      }
+                    >
+                      {windowPresence.selfWindowLabel}
+                    </MenuTrigger>
+                    <MenuPopup align="end" className="min-w-56">
+                      <MenuGroup>
+                        <MenuGroupLabel>
+                          {`Window ${windowPresence.selfWindowNumber} · ${windowPresence.openWindowCount} ${windowPresence.openWindowCount === 1 ? "window" : "windows"}`}
+                        </MenuGroupLabel>
+                        <MenuCheckboxItem
+                          checked={!hideOtherWindowThreads && projectScopeKeys.length === 0}
+                          onCheckedChange={() => {
+                            setHideOtherWindowThreads(false);
+                            setProjectScopeKeys([]);
+                          }}
+                        >
+                          All threads
+                        </MenuCheckboxItem>
+                        {(() => {
+                          const activeRouteThread =
+                            routeRowThreadKey !== null
+                              ? threads.find(
+                                  (candidate) => threadShellKey(candidate) === routeRowThreadKey,
+                                )
+                              : undefined;
+                          const currentWindowProjectGroup =
+                            (activeRouteThread
+                              ? projectGroups.find(
+                                  (group) =>
+                                    !group.archived &&
+                                    group.memberProjectRefs.some(
+                                      (ref) =>
+                                        ref.environmentId === activeRouteThread.environmentId &&
+                                        ref.projectId === activeRouteThread.projectId,
+                                    ),
+                                )
+                              : null) ??
+                            (scopedProjectGroups.length === 1 ? scopedProjectGroups[0] : null);
+                          if (!currentWindowProjectGroup) return null;
+                          const isScopedToCurrentProject =
+                            projectScopeKeys.length === 1 &&
+                            projectScopeKeys[0] === currentWindowProjectGroup.projectKey;
+                          return (
+                            <MenuCheckboxItem
+                              checked={isScopedToCurrentProject}
+                              onCheckedChange={() => {
+                                setProjectScopeKeys(
+                                  isScopedToCurrentProject
+                                    ? []
+                                    : [currentWindowProjectGroup.projectKey],
+                                );
+                              }}
+                            >
+                              {`This window’s project (${currentWindowProjectGroup.displayName})`}
+                            </MenuCheckboxItem>
+                          );
+                        })()}
+                        <MenuCheckboxItem
+                          checked={hideOtherWindowThreads}
+                          onCheckedChange={(checked) => {
+                            setHideOtherWindowThreads(Boolean(checked));
+                          }}
+                        >
+                          Hide threads open in other windows
+                        </MenuCheckboxItem>
+                      </MenuGroup>
+                      {typeof window !== "undefined" &&
+                      typeof window.desktopBridge?.openNewWindow === "function" ? (
+                        <>
+                          <MenuSeparator />
+                          <MenuItem
+                            onClick={() => {
+                              void window.desktopBridge?.openNewWindow?.(
+                                projectScopeKeys.length === 1 && projectScopeKeys[0]
+                                  ? { projectScopeKey: projectScopeKeys[0] }
+                                  : undefined,
+                              );
+                            }}
+                          >
+                            Open New Window
+                          </MenuItem>
+                        </>
+                      ) : null}
+                    </MenuPopup>
+                  </Menu>
+                ) : null
+              }
               projectScope={
                 <Combobox
                   items={projectScopeItems}
@@ -3422,6 +3602,10 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                             onUnpin={attemptUnpin}
                             onAcknowledgeWoke={acknowledgeWoke}
                             onFileDropThreads={handleThreadFileDrop}
+                            otherWindowBadges={windowPresence.otherWindowBadgesByThreadKey.get(
+                              threadKey,
+                            )}
+                            onFocusOtherWindow={handleFocusOtherWindow}
                           />
                         );
                       };
