@@ -10,6 +10,7 @@ import * as ChildProcess from "effect/process/ChildProcess";
 import { createMuseSdkHost, makeMuseEnvironment } from "./sdk.ts";
 import { parseMuseVersion } from "./maintenance.ts";
 import { discoverMuseModels, museModelCapabilities } from "./modelCatalog.ts";
+import { readMuseUsageLimits } from "./usageProbe.ts";
 import {
   buildServerProvider,
   COMPACT_SLASH_COMMAND,
@@ -132,12 +133,14 @@ export const checkMuseProviderStatus = Effect.fn("checkMuseProviderStatus")(func
     });
   }
   const models = catalog.success.value;
+  const usageLimits = yield* readMuseUsageLimits(settings, museEnvironment, cwd);
   // MSP has no auth signal and serves cached models while logged out; failures surface on first turn.
   return snapshot(
     {
       installed: true,
       version,
       auth: { status: "unknown" },
+      usageLimits,
       ...(models.length > 0
         ? { status: "ready" }
         : {

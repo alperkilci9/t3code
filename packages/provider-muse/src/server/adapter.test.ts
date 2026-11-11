@@ -208,7 +208,7 @@ const makeHarness = Effect.fnUntraced(function* (
   policy = runtimePolicy,
   overrides: Pick<
     MuseAdapterV2Options,
-    "createHost" | "nativeEventLogger" | "modelCatalog" | "continuationRequests"
+    "createHost" | "nativeEventLogger" | "modelCatalog" | "continuationRequests" | "onUsageLimits"
   > = {},
 ) {
   let hostCount = 0;
@@ -679,6 +679,50 @@ describe("MuseAdapterV2", () => {
       const terminal = yield* harness.takeEvent("turn.terminal");
       assert.strictEqual(terminal.failure?.class, "usage_limit");
       assert.strictEqual(terminal.failure?.resetAt, "2026-10-08T13:19:17.000Z");
+    }).pipe(Effect.scoped, Effect.provide(testLayer)),
+  );
+
+  it.effect("publishes subscription usage windows for the limits panel", () =>
+    Effect.gen(function* () {
+      const fake = yield* makeFakeMuse();
+      const updates: Array<{ windows: unknown; checkedAt: string }> = [];
+      const harness = yield* makeHarness(
+        fake,
+        INSTANCE_ID,
+        undefined,
+        undefined,
+        undefined,
+        runtimePolicy,
+        {
+          onUsageLimits: (update) =>
+            Effect.sync(() => {
+              updates.push(update);
+            }),
+        },
+      );
+      yield* fake.emitHostWide("usage/changed", SUBSCRIPTION_USAGE);
+      const { nativeId } = yield* startConversation(harness, fake);
+      yield* fake.emit("turn/completed", { turnId: nativeId, terminal: "completed" });
+      yield* harness.takeEvent("turn.terminal");
+      assert.lengthOf(updates, 1);
+      assert.deepStrictEqual(updates[0]?.windows, [
+        {
+          id: "session",
+          kind: "session",
+          label: "Session",
+          usedPercent: 0,
+          resetsAt: DateTime.formatIso(DateTime.makeUnsafe(SUBSCRIPTION_USAGE.window.resetsAtMs)),
+          windowDurationMins: 300,
+        },
+        {
+          id: "weekly",
+          kind: "weekly",
+          label: "Weekly",
+          usedPercent: 5,
+          resetsAt: DateTime.formatIso(DateTime.makeUnsafe(SUBSCRIPTION_USAGE.weekly.resetsAtMs)),
+        },
+      ]);
+      assert.isString(updates[0]?.checkedAt);
     }).pipe(Effect.scoped, Effect.provide(testLayer)),
   );
 

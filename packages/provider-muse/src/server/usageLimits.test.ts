@@ -1,7 +1,7 @@
 import { describe, expect, it } from "@effect/vitest";
 
 import type { MuseSubscriptionUsage } from "./protocol.ts";
-import { isMuseUsageLimitFailure, museUsageLimitResetAt } from "./usageLimits.ts";
+import { isMuseUsageLimitFailure, museUsageLimitResetAt, museUsageWindows } from "./usageLimits.ts";
 
 const usage = {
   observedAtMs: 1791447762610,
@@ -52,5 +52,39 @@ describe("Muse usage limit failures", () => {
     expect(museUsageLimitResetAt(sessionOut, usage.window.resetsAtMs)).toBeNull();
     const afterNamedReset = Date.parse("2026-10-14T00:00:00Z");
     expect(museUsageLimitResetAt(undefined, afterNamedReset, { message: realRefusal })).toBeNull();
+  });
+});
+
+describe("museUsageWindows", () => {
+  it("maps the session and weekly windows with ISO resets", () => {
+    expect(museUsageWindows(usage)).toEqual([
+      {
+        id: "session",
+        kind: "session",
+        label: "Session",
+        usedPercent: 0,
+        resetsAt: "2026-10-08T13:19:17.000Z",
+        windowDurationMins: 300,
+      },
+      {
+        id: "weekly",
+        kind: "weekly",
+        label: "Weekly",
+        usedPercent: 5,
+        resetsAt: "2026-10-12T00:00:00.000Z",
+      },
+    ]);
+  });
+
+  it("clamps over-100 percents and drops unusable resets and durations", () => {
+    const windows = museUsageWindows({
+      window: { usedPercent: 140, resetsAtMs: 1e16, windowDurationMins: Number.NaN },
+      weekly: { usedPercent: -3, resetsAtMs: 0 },
+    });
+    expect(windows[0]).toMatchObject({ usedPercent: 100 });
+    expect(windows[0]).not.toHaveProperty("resetsAt");
+    expect(windows[0]).not.toHaveProperty("windowDurationMins");
+    expect(windows[1]).toMatchObject({ usedPercent: 0 });
+    expect(windows[1]).not.toHaveProperty("resetsAt");
   });
 });

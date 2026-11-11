@@ -182,6 +182,7 @@ export const MuseDriver: ProviderDriver<
       settings: effectiveConfig,
       environment: processEnvironment,
       modelCatalog,
+      onUsageLimits: (update) => snapshot.applyUsageLimits(update),
       ...(eventLoggers.native ? { nativeEventLogger: eventLoggers.native } : {}),
       continuationRequests,
     });

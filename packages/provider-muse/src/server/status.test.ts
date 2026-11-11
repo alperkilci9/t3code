@@ -1,6 +1,7 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
 import { MuseSettings } from "../settings.ts";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Schema from "effect/Schema";
@@ -47,7 +48,26 @@ const metaCatalog = {
   ],
 };
 
-const fakeCli = (source = 'process.stdout.write("muse 1.0.3-R2198.1\\n");') =>
+const USAGE_REPORT = JSON.stringify({
+  schemaVersion: 1,
+  allowance: {
+    tier: "Muse Code Power Usage",
+    window: { usedPercent: 12.5, resetsAtMs: 1794372422000 },
+    weekly: { usedPercent: 34, resetsAtMs: 1794787200000 },
+    asOfMs: 1794354499113,
+    source: "mint",
+  },
+  reason: null,
+  hint: null,
+});
+const fakeCli = (
+  source = `const args = process.argv.slice(2);
+if (args[0] === "usage") {
+  process.stdout.write(${JSON.stringify(USAGE_REPORT)});
+} else {
+  process.stdout.write("muse 1.0.3-R2198.1\\n");
+}`,
+) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const directory = yield* fs.makeTempDirectoryScoped({ prefix: "muse-status-test-" });
@@ -107,6 +127,55 @@ it.layer(NodeServices.layer)("Muse status", (it) => {
         expect(host.connection.request).toHaveBeenCalledWith("model/list", {});
         expect(host.connection.command).not.toHaveBeenCalled();
         expect(host.close).toHaveBeenCalledOnce();
+      }),
+    ),
+  );
+
+  it.effect("maps `muse usage --json` allowance windows onto the provider snapshot", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const binaryPath = yield* fakeCli();
+        const snapshot = yield* checkMuseProviderStatus(
+          settings({ enabled: true, binaryPath }),
+          undefined,
+          undefined,
+          async () => makeHost(metaCatalog),
+        );
+        expect(snapshot.status).toBe("ready");
+        expect(snapshot.usageLimits?.windows).toEqual([
+          {
+            id: "session",
+            kind: "session",
+            label: "Session",
+            usedPercent: 12.5,
+            resetsAt: DateTime.formatIso(DateTime.makeUnsafe(1794372422000)),
+          },
+          {
+            id: "weekly",
+            kind: "weekly",
+            label: "Weekly",
+            usedPercent: 34,
+            resetsAt: DateTime.formatIso(DateTime.makeUnsafe(1794787200000)),
+          },
+        ]);
+      }),
+    ),
+  );
+
+  it.effect("keeps the provider ready but marks limits probeFailed when usage fails", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const binaryPath = yield* fakeCli(`const args = process.argv.slice(2);
+if (args[0] === "usage") process.exit(1);
+process.stdout.write("muse 1.0.3-R2198.1\\n");`);
+        const snapshot = yield* checkMuseProviderStatus(
+          settings({ enabled: true, binaryPath }),
+          undefined,
+          undefined,
+          async () => makeHost(metaCatalog),
+        );
+        expect(snapshot.status).toBe("ready");
+        expect(snapshot.usageLimits?.unavailable?.reason).toBe("probeFailed");
       }),
     ),
   );
