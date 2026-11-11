@@ -183,12 +183,20 @@ export function useComposerSelection(input: ComposerSelectionInput) {
       if (options?.focusComposer !== false) scheduleComposerFocus();
       return;
     }
+    const draftStore = useComposerDraftStore.getState();
     const rememberedOptions =
-      useComposerDraftStore.getState().stickyOptionsByModelByProvider[instanceId]?.[resolvedModel];
-    const nextModelSelection: ModelSelection =
-      rememberedOptions !== undefined && rememberedOptions.length > 0
+      draftStore.stickyOptionsByModelByProvider[instanceId]?.[resolvedModel];
+    const latestDraft = draftStore.getComposerDraft(composerDraftTarget);
+    const latestDraftSelection = latestDraft?.activeProvider
+      ? latestDraft.modelSelectionByProvider[latestDraft.activeProvider]
+      : undefined;
+    const sidekick = latestDraftSelection?.sidekick ?? activeThread.modelSelection.sidekick;
+    const nextModelSelection: ModelSelection = {
+      ...(rememberedOptions !== undefined && rememberedOptions.length > 0
         ? { instanceId, model: resolvedModel, options: [...rememberedOptions] }
-        : { instanceId, model: resolvedModel };
+        : { instanceId, model: resolvedModel }),
+      ...(sidekick === undefined ? {} : { sidekick }),
+    };
     const modelChangeBlockReason = getStartedThreadModelChangeBlockReason({
       hasStartedSession: activeRuntime !== null,
       supportsProviderSwitchingViaHandoff,

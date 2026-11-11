@@ -1254,6 +1254,7 @@ export function useComposerSend(input: ComposerSendInput) {
       ctxSelectedModelSelection.instanceId,
       ctxSelectedModel || activeProjectDefaultModelSelection?.model || DEFAULT_MODEL,
       ctxSelectedModelSelection.options,
+      ctxSelectedModelSelection.sidekick,
     );
 
     let failure: AtomCommandResult<unknown, unknown> | null = null;

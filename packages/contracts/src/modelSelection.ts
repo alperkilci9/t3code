@@ -6,10 +6,24 @@ import { TrimmedNonEmptyString } from "./baseSchemas.ts";
 import { ProviderOptionSelections } from "./model.ts";
 import { ProviderInstanceId } from "./providerInstance.ts";
 
+export const SidekickModelSelection = Schema.Struct({
+  instanceId: ProviderInstanceId,
+  model: TrimmedNonEmptyString,
+  options: Schema.optionalKey(ProviderOptionSelections),
+});
+export type SidekickModelSelection = typeof SidekickModelSelection.Type;
+
+export const SidekickConfiguration = Schema.Struct({
+  enabled: Schema.Boolean,
+  selection: SidekickModelSelection,
+});
+export type SidekickConfiguration = typeof SidekickConfiguration.Type;
+
 const ModelSelectionWire = Schema.Struct({
   instanceId: ProviderInstanceId,
   model: TrimmedNonEmptyString,
   options: Schema.optionalKey(ProviderOptionSelections),
+  sidekick: Schema.optionalKey(SidekickConfiguration),
 });
 
 const ModelSelectionSource = Schema.Struct({
@@ -17,6 +31,7 @@ const ModelSelectionSource = Schema.Struct({
   instanceId: Schema.optional(Schema.Unknown),
   model: Schema.Unknown,
   options: Schema.optional(Schema.Unknown),
+  sidekick: Schema.optional(Schema.Unknown),
 });
 
 export const ModelSelection = ModelSelectionSource.pipe(
@@ -35,6 +50,7 @@ export const ModelSelection = ModelSelectionSource.pipe(
           model: raw.model,
         };
         if (raw.options !== undefined) base.options = raw.options;
+        if (raw.sidekick !== undefined) base.sidekick = raw.sidekick;
         return Effect.succeed(base as typeof ModelSelectionWire.Encoded);
       },
       encode: (value) => {
@@ -43,6 +59,7 @@ export const ModelSelection = ModelSelectionSource.pipe(
           model: value.model,
         };
         if (value.options !== undefined) base.options = value.options;
+        if (value.sidekick !== undefined) base.sidekick = value.sidekick;
         return Effect.succeed(base as typeof ModelSelectionSource.Encoded);
       },
     }),

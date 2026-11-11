@@ -207,7 +207,11 @@ import { ComposerPendingUserInputPanel } from "./ComposerPendingUserInputPanel";
 import { ComposerPlanFollowUpBanner } from "./ComposerPlanFollowUpBanner";
 import { resolveComposerMenuActiveItemId } from "./composerMenuHighlight";
 import { buildPullRequestReferenceContext } from "../pullRequest/pullRequestDetail.logic";
-import { getComposerPromptInjectionState, getComposerReasoningStep } from "./composerProviderState";
+import {
+  getComposerPromptInjectionState,
+  getComposerProviderState,
+  getComposerReasoningStep,
+} from "./composerProviderState";
 import { readPromptUltrathink } from "./TraitsPicker";
 import {
   providerSupportsManualCompaction,
@@ -964,21 +968,69 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     provider: selectedProviderStatus,
     interactionMode: requestedInteractionMode,
   });
+  const draftSidekick =
+    composerDraft.modelSelectionByProvider[selectedInstanceId]?.sidekick ??
+    (composerDraft.activeProvider
+      ? composerDraft.modelSelectionByProvider[composerDraft.activeProvider]?.sidekick
+      : undefined);
+  const rawSidekick =
+    draftSidekick ??
+    activeThreadModelSelection?.sidekick ??
+    activeProjectDefaultModelSelection?.sidekick;
+  const resolvedSidekick = (() => {
+    if (!rawSidekick) return undefined;
+    const sidekickEntry = providerInstanceEntries.find(
+      (entry) => entry.instanceId === rawSidekick.selection.instanceId,
+    );
+    if (!sidekickEntry) return rawSidekick;
+    const normalizedOptions = getComposerProviderState({
+      provider: sidekickEntry.driverKind,
+      model: rawSidekick.selection.model,
+      models: sidekickEntry.models,
+      modelOptions: rawSidekick.selection.options,
+      planModeEnabled: false,
+    }).modelOptionsForDispatch;
+    return {
+      enabled: rawSidekick.enabled,
+      selection: createModelSelection(
+        rawSidekick.selection.instanceId,
+        rawSidekick.selection.model,
+        normalizedOptions,
+      ),
+    };
+  })();
   const selectedModelSelection: ModelSelection = createModelSelection(
     selectedInstanceId,
     selectedModel,
     selectedModelOptionsForDispatch,
+    resolvedSidekick,
   );
+  const onSidekickChange = (configuration: NonNullable<ModelSelection["sidekick"]>) => {
+    const nextSelection: ModelSelection = {
+      ...selectedModelSelection,
+      sidekick: configuration,
+    };
+    const draftStore = useComposerDraftStore.getState();
+    draftStore.setModelSelection(composerDraftTarget, nextSelection, {
+      explicit: true,
+      replaceOptions: true,
+    });
+    draftStore.setStickyModelSelection(nextSelection);
+    focusComposer();
+  };
+  const onSidekickChangeStable = useStableCallback(onSidekickChange);
   const selectedModelForPicker = selectedModel;
   const modelOptionsByInstance = new Map<ProviderInstanceId, ReadonlyArray<AppModelOption>>();
   for (const entry of providerInstanceEntries) {
+    const activeForEntry =
+      entry.instanceId === selectedInstanceId
+        ? selectedModelForPicker
+        : entry.instanceId === resolvedSidekick?.selection.instanceId
+          ? resolvedSidekick.selection.model
+          : null;
     modelOptionsByInstance.set(
       entry.instanceId,
-      getAppModelOptionsForInstance(
-        settings,
-        entry,
-        entry.instanceId === selectedInstanceId ? selectedModelForPicker : null,
-      ),
+      getAppModelOptionsForInstance(settings, entry, activeForEntry),
     );
   }
 
@@ -2348,6 +2400,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       multipleModelSelections={multipleModelSelections}
       onMultipleModelSelectionsChange={setMultipleModelSelections}
       selectedModelSelection={selectedModelSelection}
+      onSidekickChange={onSidekickChangeStable}
       onProviderModelSelect={onProviderModelSelect}
       activeThreadModelSelection={activeThreadModelSelection}
       selectedModelForPickerWithCustomFallback={selectedModelForPickerWithCustomFallback}

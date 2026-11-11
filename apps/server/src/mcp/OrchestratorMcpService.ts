@@ -1996,8 +1996,10 @@ const make = Effect.gen(function* () {
             : "bindToCurrentThread binds to this thread, which belongs to a different project.",
         );
       }
-      const modelSelection =
+      const rawModelSelection =
         parent?.thread.modelSelection ?? (yield* projectDefaultModelSelection(project));
+      const { sidekick: _omittedSidekick, ...standaloneSelection } = rawModelSelection;
+      const modelSelection = bindToCurrentThread ? rawModelSelection : standaloneSelection;
       const derivedTitle = input.prompt.split("\n")[0]?.trim() ?? "";
       const title =
         input.title ?? (derivedTitle.length > 0 ? derivedTitle.slice(0, 80) : "Scheduled task");
@@ -2295,6 +2297,9 @@ const make = Effect.gen(function* () {
             isPinned: (model) =>
               model.isCustom ||
               (inherited?.instanceId === provider.instanceId && inherited.model === model.slug) ||
+              (inherited?.sidekick?.enabled === true &&
+                inherited.sidekick.selection.instanceId === provider.instanceId &&
+                inherited.sidekick.selection.model === model.slug) ||
               (settings.favorites ?? []).some(
                 (favorite) =>
                   favorite.provider === provider.instanceId && favorite.model === model.slug,

@@ -1,8 +1,9 @@
 import type { ChatComposerProps } from "./ChatComposer";
 import type { PromptUltrathink } from "./TraitsPicker";
-import type { ProviderInstanceEntry } from "../../providerInstances";
+import { shouldShowInstanceBadge, type ProviderInstanceEntry } from "../../providerInstances";
 import { type AppModelOption } from "../../modelSelection";
-import { CircleAlertIcon } from "lucide-react";
+import { CircleAlertIcon, WaypointsIcon } from "lucide-react";
+import { useState } from "react";
 import { CompactComposerControlsMenu } from "./CompactComposerControlsMenu";
 import { ComposerControl } from "./ComposerControl";
 import {
@@ -18,6 +19,7 @@ import {
   type ProviderInteractionMode,
   type RuntimeMode,
   type ServerProvider,
+  type SidekickConfiguration,
 } from "@t3tools/contracts";
 import type { EffortDisplay } from "@t3tools/contracts/settings";
 import { cn } from "~/lib/utils";
@@ -29,6 +31,8 @@ import {
 } from "./ComposerModelEffort";
 import type { useComposerProviderModel } from "./useComposerProviderModel";
 import { resolveComposerControlsOwnership } from "./composerControlsOwnership";
+import { ProviderInstanceIcon } from "./ProviderInstanceIcon";
+import { SidekickControl, triggerSidekickModelLabel } from "./SidekickControl";
 
 /**
  * The composer footer controls: the model picker (which also holds effort, speed and
@@ -75,6 +79,7 @@ export function ComposerControlsBar(props: {
   multipleModelSelections: ChatComposerProps["multipleModelSelections"];
   onMultipleModelSelectionsChange: ChatComposerProps["onMultipleModelSelectionsChange"];
   selectedModelSelection: ModelSelection;
+  onSidekickChange: (configuration: SidekickConfiguration) => void;
   onProviderModelSelect: ChatComposerProps["onProviderModelSelect"];
   activeThreadModelSelection: ChatComposerProps["activeThreadModelSelection"];
   selectedModelForPickerWithCustomFallback: string;
@@ -187,6 +192,21 @@ export function ComposerControlsBar(props: {
         },
       ]
     : [];
+  const [sidekickPickerOpen, setSidekickPickerOpen] = useState(false);
+  const sidekickEnabled = selectedModelSelection.sidekick?.enabled === true;
+  const sidekickSelection = selectedModelSelection.sidekick?.selection;
+  const sidekickEntry = sidekickSelection
+    ? providerInstanceEntries.find((entry) => entry.instanceId === sidekickSelection.instanceId)
+    : undefined;
+  const sidekickFooterLabel =
+    sidekickEnabled && sidekickSelection
+      ? triggerSidekickModelLabel(
+          sidekickSelection,
+          selectedModelSelection,
+          providerInstanceEntries,
+          modelOptionsByInstance,
+        )
+      : "Off";
   // Its own element, so typing (which rebuilds the controls around it) leaves it cached.
   const composerModelPicker = (
     <ComposerModelPicker
@@ -234,6 +254,42 @@ export function ComposerControlsBar(props: {
           runtimeMode={compatibleRuntimeMode}
           runtimeModeOptions={compatibleRuntimeModeOptions}
           onRuntimeModeChange={handleRuntimeModeChange}
+          sidekickSlot={
+            multipleModelSelections === null ? (
+              <button
+                type="button"
+                data-model-picker-sidekick-trigger="true"
+                aria-label={`Sidekick: ${sidekickFooterLabel}`}
+                onClick={() => {
+                  onModelPickerOpenChange(false);
+                  setSidekickPickerOpen(true);
+                }}
+                className={cn(
+                  "flex h-7 cursor-pointer items-center gap-1.5 rounded-md px-2 text-xs outline-none hover:bg-foreground/[0.09] focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
+                  sidekickEnabled
+                    ? "font-medium text-foreground"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {sidekickEnabled && sidekickEntry ? (
+                  <ProviderInstanceIcon
+                    driverKind={sidekickEntry.driverKind}
+                    displayName={sidekickEntry.displayName}
+                    accentColor={sidekickEntry.accentColor}
+                    acpRegistryAgentId={sidekickEntry.acpRegistryAgentId}
+                    acpRegistryIconUrl={sidekickEntry.acpRegistryIconUrl}
+                    showBadge={shouldShowInstanceBadge(sidekickEntry, providerInstanceEntries)}
+                    className="size-3.5 shrink-0"
+                    iconClassName="size-3.5"
+                    indicatorBackground="var(--muted)"
+                  />
+                ) : (
+                  <WaypointsIcon aria-hidden="true" className="size-3.5 shrink-0" />
+                )}
+                <span className="max-w-36 truncate">Sidekick · {sidekickFooterLabel}</span>
+              </button>
+            ) : null
+          }
         />
       }
       terminalOpen={terminalOpen}
@@ -269,6 +325,26 @@ export function ComposerControlsBar(props: {
   ) : (
     <>
       {composerModelPicker}
+      {multipleModelSelections === null ? (
+        <SidekickControl
+          environmentId={environmentId}
+          leadSelection={selectedModelSelection}
+          leadEffortDetail={effort.detail}
+          sidekick={selectedModelSelection.sidekick}
+          instanceEntries={providerInstanceEntries}
+          modelOptionsByInstance={modelOptionsByInstance}
+          {...(keybindings ? { keybindings } : {})}
+          effortDisplay={props.effortDisplay}
+          size={controlSize}
+          disabled={providerCatalogPending || isSendBusy}
+          terminalOpen={terminalOpen}
+          open={sidekickPickerOpen}
+          onOpenChange={setSidekickPickerOpen}
+          onChange={props.onSidekickChange}
+          onOpenLeadPicker={() => onModelPickerOpenChange(true)}
+          onOpenProviderSetup={onOpenProviderSetup}
+        />
+      ) : null}
 
       <>
         {restingBlockDefs.map((def, index) => {

@@ -282,6 +282,7 @@ import { ProviderSubagentBar } from "./chat/ProviderSubagentBar";
 import { getTriggerDisplayModelName } from "./chat/providerIconUtils";
 import { resolveScrollToEndClearance } from "./composerFooterLayout";
 import { ChatHeader } from "./chat/ChatHeader";
+import { ChatHeaderSidekickBar } from "./chat/SidekickControl";
 import { useSideChat } from "./chat/useSideChat";
 import { useRemoteOpenState } from "~/remoteOpen";
 import { shouldShowOpenInPicker } from "./chat/OpenInPicker.logic";
@@ -3479,6 +3480,29 @@ export default function ChatView(props: ChatViewProps) {
               {...(threadFindEnabled ? { onFindInThread: openThreadFindStable } : {})}
             />
           </header>
+        )}
+        {embedded ||
+        pane ||
+        showProviderSubagentBar ||
+        !canOperateThread ||
+        multipleModelSelections !== null ? null : (
+          <ChatHeaderSidekickBar
+            environmentId={activeThread.environmentId}
+            composerDraftTarget={composerDraftTarget}
+            providerStatuses={providerStatuses}
+            settings={settings}
+            activeProjectId={activeProject?.id ?? null}
+            activeRuntimeProviderInstanceId={activeRuntime?.providerInstanceId}
+            threadModelSelection={activeThread.modelSelection}
+            projectModelSelection={activeProjectDefaultModelSelection}
+            lockedProvider={lockedProvider}
+            keybindings={keybindings}
+            terminalOpen={Boolean(terminalUiState.terminalOpen)}
+            disabled={queuedRunEdit.isSaving}
+            onOpenLeadPicker={() => composerRef.current?.openModelPicker()}
+            onFocusComposer={focusComposerStable}
+            onOpenProviderSetup={openProviderSetupStable}
+          />
         )}
 
         <div className="relative flex min-h-0 min-w-0 flex-1">

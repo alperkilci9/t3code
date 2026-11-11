@@ -19,6 +19,7 @@ import {
   PastedTextAttachmentSource,
   type PreviewAnnotationPayload,
   RuntimeMode,
+  type SidekickConfiguration,
   ThreadContextRecord,
   EnvironmentContextRecord,
   type ServerProvider,
@@ -665,6 +666,14 @@ function cloneModelSelection(selection: ModelSelection): DeepMutable<ModelSelect
   return {
     ...selection,
     ...(selection.options ? { options: selection.options.map((option) => ({ ...option })) } : {}),
+    ...(selection.sidekick
+      ? {
+          sidekick: {
+            ...selection.sidekick,
+            selection: cloneModelSelection(selection.sidekick.selection),
+          },
+        }
+      : {}),
   } as DeepMutable<ModelSelection>;
 }
 
@@ -968,6 +977,14 @@ function normalizeProviderModelOptions(
   return Object.keys(result).length > 0 ? result : null;
 }
 
+function normalizeSidekickConfiguration(value: unknown): SidekickConfiguration | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const candidate = value as Record<string, unknown>;
+  const selection = normalizeModelSelection(candidate.selection);
+  if (!selection || typeof candidate.enabled !== "boolean") return undefined;
+  return { enabled: candidate.enabled, selection };
+}
+
 function normalizeModelSelection(
   value: unknown,
   legacy?: {
@@ -999,9 +1016,15 @@ function normalizeModelSelection(
   if (!model) {
     return null;
   }
+  const sidekick = normalizeSidekickConfiguration(candidate?.sidekick);
   if (Array.isArray(candidate?.options)) {
     const selections = coerceProviderOptionSelections(candidate.options);
-    return createModelSelection(instanceId, model, selections) as NormalizedModelSelection;
+    return createModelSelection(
+      instanceId,
+      model,
+      selections,
+      sidekick,
+    ) as NormalizedModelSelection;
   }
   const kindForLegacyOptions = normalizeProviderDriverKind(instanceId);
   const modelOptions = kindForLegacyOptions
@@ -1012,7 +1035,7 @@ function normalizeModelSelection(
       )
     : null;
   const options = kindForLegacyOptions ? modelOptions?.[kindForLegacyOptions] : undefined;
-  return createModelSelection(instanceId, model, options) as NormalizedModelSelection;
+  return createModelSelection(instanceId, model, options, sidekick) as NormalizedModelSelection;
 }
 
 type NormalizedModelSelection = Omit<ModelSelection, "instanceId"> & {
@@ -1032,6 +1055,7 @@ function legacySyncModelSelectionOptions(
     modelSelection.instanceId,
     modelSelection.model,
     options,
+    modelSelection.sidekick,
   ) as NormalizedModelSelection;
 }
 
@@ -2907,7 +2931,12 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
             const nextSelection =
               normalized.options !== undefined
                 ? normalized
-                : createModelSelection(normalized.instanceId, normalized.model, current?.options);
+                : createModelSelection(
+                    normalized.instanceId,
+                    normalized.model,
+                    current?.options,
+                    normalized.sidekick ?? current?.sidekick,
+                  );
             const nextMap: Partial<Record<ProviderInstanceId, ModelSelection>> = {
               ...state.stickyModelSelectionByProvider,
               [normalized.instanceId]: nextSelection,
@@ -3033,6 +3062,7 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
                   normalized.instanceId,
                   normalized.model,
                   current?.options,
+                  normalized.sidekick ?? current?.sidekick,
                 );
               }
             }
@@ -3088,6 +3118,7 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
                 instanceKey,
                 currentForProvider?.model ?? fallbackModel,
                 providerOpts,
+                currentForProvider?.sidekick,
               );
             } else if (currentForProvider && (currentForProvider.options?.length ?? 0) > 0) {
               const { options: _, ...rest } = currentForProvider;
@@ -3109,6 +3140,7 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
                   instanceKey,
                   stickyBase.model,
                   providerOpts,
+                  stickyBase.sidekick,
                 );
                 nextOptionsByModel = {
                   ...state.stickyOptionsByModelByProvider,

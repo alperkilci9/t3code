@@ -70,3 +70,31 @@ it.effect(
       assert.deepStrictEqual(encoded.options, decoded.options);
     }),
 );
+
+it.effect("preserves the sidekick pairing and its effort options", () =>
+  Effect.gen(function* () {
+    const decoded = yield* decodeModelSelection({
+      instanceId: "claudeAgent",
+      model: "claude-opus-5-5",
+      options: [{ id: "effort", value: "high" }],
+      sidekick: {
+        enabled: true,
+        selection: {
+          instanceId: "codex",
+          model: "gpt-6-luna",
+          options: [{ id: "reasoningEffort", value: "low" }],
+        },
+      },
+    });
+    assert.deepStrictEqual(decoded.sidekick, {
+      enabled: true,
+      selection: {
+        instanceId: ProviderInstanceId.make("codex"),
+        model: "gpt-6-luna",
+        options: [{ id: "reasoningEffort", value: "low" }],
+      },
+    });
+    const encoded = yield* encodeModelSelection(decoded);
+    assert.deepStrictEqual(encoded.sidekick, decoded.sidekick);
+  }),
+);

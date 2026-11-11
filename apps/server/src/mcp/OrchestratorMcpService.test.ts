@@ -1194,11 +1194,10 @@ describe("OrchestratorMcpService provider resolution", () => {
 
   const parentProjection = (
     subagents: ReadonlyArray<unknown>,
-    modelSelection: {
-      readonly instanceId: ProviderInstanceId;
-      readonly model: string;
-      readonly options?: ReadonlyArray<{ readonly id: string; readonly value: unknown }>;
-    } = { instanceId: codexInstanceId, model: "gpt-5.4" },
+    modelSelection: OrchestrationV2ThreadProjection["thread"]["modelSelection"] = {
+      instanceId: codexInstanceId,
+      model: "gpt-5.4",
+    },
   ): OrchestrationV2ThreadProjection =>
     ({
       thread: {
@@ -3084,7 +3083,13 @@ describe("OrchestratorMcpService provider resolution", () => {
               getThreadRecords: (threadId) =>
                 Effect.succeed(
                   threadId === parentThreadId
-                    ? parentProjection(commands.length > 0 ? [task] : [], inherited)
+                    ? parentProjection(commands.length > 0 ? [task] : [], {
+                        ...inherited,
+                        sidekick: {
+                          enabled: true,
+                          selection: { instanceId: peerId, model: "gpt-6-luna" },
+                        },
+                      })
                     : childProjection,
                 ),
               dispatch: (command) =>
@@ -3136,6 +3141,142 @@ describe("OrchestratorMcpService provider resolution", () => {
             );
           }).pipe(Effect.provide(layerOrchestratorService.pipe(Layer.provide(dependencies))));
         }
+      }),
+  );
+
+  it.effect(
+    "routes same-slug models across distinct providers (Devin muse-ember lead + Muse muse-ember sidekick) and pins sidekick in capabilities",
+    () =>
+      Effect.gen(function* () {
+        const devinId = ProviderInstanceId.make("acpRegistry_devin");
+        const museId = ProviderInstanceId.make("muse");
+        const devinDriver = ProviderDriverKind.make("acpRegistry");
+        const museDriver = ProviderDriverKind.make("muse");
+        const devinScope = {
+          ...scope,
+          thread: { ...scope.thread!, threadId: parentThreadId, providerInstanceId: devinId },
+        };
+        const parentSelection = {
+          instanceId: devinId,
+          model: "muse-ember",
+          options: [{ id: "reasoningEffort", value: "high" }],
+          sidekick: {
+            enabled: true,
+            selection: {
+              instanceId: museId,
+              model: "muse-ember",
+              options: [{ id: "reasoningEffort", value: "max" }],
+            },
+          },
+        } as const;
+        const commands: Array<unknown> = [];
+        const task = {
+          id: taskId,
+          threadId: parentThreadId,
+          origin: "app_owned",
+          childThreadId,
+          providerInstanceId: museId,
+          model: "muse-ember",
+          status: "running",
+          result: null,
+        };
+        const makeDevinParent = () => {
+          const baseParent = parentProjection(commands.length > 0 ? [task] : [], parentSelection);
+          return {
+            ...baseParent,
+            runs: baseParent.runs.map((run) => ({
+              ...run,
+              providerInstanceId: devinId,
+            })),
+          };
+        };
+        const model = (slug: string, extra: Partial<ServerProvider["models"][number]> = {}) => ({
+          slug,
+          name: slug,
+          isCustom: false,
+          capabilities: null,
+          ...extra,
+        });
+        const manyMuseModels: ServerProvider["models"] = [
+          ...Array.from({ length: 12 }, (_, index) =>
+            model(`muse-extra-${index}`, { name: `Muse Extra ${index}` }),
+          ),
+          model("muse-ember", {
+            name: "Muse Ember",
+            capabilities: {
+              optionDescriptors: [
+                {
+                  id: "reasoningEffort",
+                  label: "Reasoning",
+                  type: "select",
+                  currentValue: "high",
+                  options: [
+                    { id: "high", label: "High", isDefault: true },
+                    { id: "max", label: "Max" },
+                  ],
+                },
+              ],
+            },
+          }),
+        ];
+        const dependencies = Layer.mergeAll(
+          NodeServices.layer,
+          NodeCrypto.layer,
+          Layer.mock(ThreadManagementService.ThreadManagementService)({
+            hasReceipt: () => Effect.succeed(false),
+            assertProviderInstanceEnabled: () => Effect.void,
+            getThreadRecords: (threadId) =>
+              Effect.succeed(threadId === parentThreadId ? makeDevinParent() : childProjection),
+            dispatch: (command) =>
+              Effect.sync(() => {
+                commands.push(command);
+                return {
+                  sequence: 1,
+                  storedEvents: [{ event: { type: "subagent.updated", payload: task } }],
+                } as never;
+              }),
+          }),
+          ServerSettings.layerTest(),
+          providerRegistryLayer([
+            providerSnapshot({ instanceId: devinId, driver: devinDriver, model: "muse-ember" }),
+            {
+              ...providerSnapshot({ instanceId: museId, driver: museDriver, model: "muse-ember" }),
+              models: manyMuseModels,
+            },
+          ]),
+          adapterRegistryLayer([devinId, museId]),
+          Layer.mock(ProjectService.ProjectService)({}),
+          Layer.mock(SecretRequests.SecretRequests)({}),
+          Layer.mock(RemoteDelegation.RemoteDelegation)({}),
+          Layer.mock(ScheduledTaskService.ScheduledTaskService)({}),
+        );
+        yield* Effect.gen(function* () {
+          const service = yield* OrchestratorMcpService.OrchestratorMcpService;
+          const capabilities = yield* service.capabilities(devinScope);
+          const museCapabilities = capabilities.providers.find(
+            (provider) => provider.providerInstanceId === museId,
+          );
+          assert.isDefined(museCapabilities);
+          assert.isTrue(
+            museCapabilities!.models.some((model) => model.id === "muse-ember"),
+            "configured Sidekick model should stay pinned in capabilities",
+          );
+          yield* service.delegateTask(devinScope, {
+            task: "Implement the helper in Muse Code.",
+            target: yield* decodeTarget({
+              providerInstanceId: museId,
+              model: "muse-ember",
+              options: { reasoningEffort: "max" },
+            }),
+            mode: "async",
+            clientRequestId: "devin-to-muse-sidekick",
+          });
+          assert.deepEqual((commands[0] as { modelSelection: unknown }).modelSelection, {
+            instanceId: museId,
+            model: "muse-ember",
+            options: [{ id: "reasoningEffort", value: "max" }],
+          });
+        }).pipe(Effect.provide(layerOrchestratorService.pipe(Layer.provide(dependencies))));
       }),
   );
 

@@ -1717,6 +1717,43 @@ describe("composerDraftStore modelSelection", () => {
     );
   });
 
+  it("preserves the sidekick pairing across lead model and effort changes", () => {
+    const store = useComposerDraftStore.getState();
+    const sidekick = {
+      enabled: false,
+      selection: {
+        instanceId: CODEX_INSTANCE,
+        model: "gpt-6-luna",
+        options: [{ id: "reasoningEffort", value: "low" }],
+      },
+    } as const;
+    store.setModelSelection(threadRef, {
+      ...modelSelection(CLAUDE_AGENT_DRIVER, "claude-opus-4-6", { effort: "max" }),
+      sidekick,
+    });
+    store.setStickyModelSelection({
+      ...modelSelection(CLAUDE_AGENT_DRIVER, "claude-opus-4-6", { effort: "max" }),
+      sidekick,
+    });
+
+    store.setProviderModelOptions(
+      threadRef,
+      CLAUDE_AGENT_DRIVER,
+      toSelections({ effort: "high" }),
+      { persistSticky: true },
+    );
+    store.setModelSelection(threadRef, modelSelection(CLAUDE_AGENT_DRIVER, "claude-sonnet-4-6"));
+
+    expect(
+      draftFor(threadId, TEST_ENVIRONMENT_ID)?.modelSelectionByProvider[CLAUDE_AGENT_INSTANCE]
+        ?.sidekick,
+    ).toEqual(sidekick);
+    expect(
+      useComposerDraftStore.getState().stickyModelSelectionByProvider[CLAUDE_AGENT_INSTANCE]
+        ?.sidekick,
+    ).toEqual(sidekick);
+  });
+
   // regression: #6011 new threads ignored project default models unless edits are marked explicit
   it("marks trait edits as explicit model intent", () => {
     const store = useComposerDraftStore.getState();

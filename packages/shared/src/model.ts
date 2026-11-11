@@ -1,5 +1,6 @@
 import {
   type CustomModelSetting,
+  type SidekickConfiguration,
   MODEL_SLUG_ALIASES_BY_PROVIDER,
   ModelCapabilities,
   type ModelSelection,
@@ -127,7 +128,10 @@ export function draftModelPickMatchesThread(pick: ModelSelection, thread: ModelS
       selection.model,
       selection.options?.filter((option) => option.id !== "fastMode" || option.value !== false),
     );
-  return modelSelectionsEqual(withoutFastModeOff(pick), withoutFastModeOff(thread));
+  return (
+    modelSelectionsEqual(withoutFastModeOff(pick), withoutFastModeOff(thread)) &&
+    JSON.stringify(pick.sidekick ?? null) === JSON.stringify(thread.sidekick ?? null)
+  );
 }
 
 function resolveDescriptorChoiceValue(
@@ -481,11 +485,13 @@ export function createModelSelection(
   instanceId: ProviderInstanceId,
   model: string,
   options?: ReadonlyArray<ProviderOptionSelection> | null,
+  sidekick?: SidekickConfiguration,
 ): ModelSelection {
   const selections = options ? cloneSelections(options) : [];
   const base: ModelSelection = {
     instanceId,
     model,
+    ...(sidekick === undefined ? {} : { sidekick }),
   };
   return selections.length > 0 ? { ...base, options: selections } : base;
 }

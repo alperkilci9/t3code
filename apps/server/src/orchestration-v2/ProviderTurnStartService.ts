@@ -47,6 +47,7 @@ import {
 } from "@t3tools/provider-core/server/handoffBudget";
 import { deliverContextHandoffs, withInlineContext } from "./ContextHandoffDelivery.ts";
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
+import { buildSidekickInstructions } from "@t3tools/provider-core/server/sidekickInstructions";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as ProjectionStore from "./ProjectionStore.ts";
 import * as ProviderSessionManager from "./ProviderSessionManager.ts";
@@ -1581,6 +1582,17 @@ export const layer: Layer.Layer<
           ],
         });
       });
+      const previousExecutedRun = projection.runs
+        .filter(
+          (candidate) =>
+            candidate.ordinal < run.ordinal &&
+            candidate.status !== "rolled_back" &&
+            (candidate.startedAt !== null || candidate.status === "completed"),
+        )
+        .toSorted((left, right) => right.ordinal - left.ordinal)[0];
+      const turnSidekickInstructions = buildSidekickInstructions(run.modelSelection.sidekick, {
+        previouslyEnabled: previousExecutedRun?.modelSelection.sidekick?.enabled === true,
+      });
       const startWithHandoffs = Effect.fn("ProviderTurnStartService.startWithHandoffs")(
         function* (turnInput: Parameters<typeof session.startTurn>[0], compact = false) {
           const delivery = yield* deliverContextHandoffs({
@@ -1607,8 +1619,9 @@ export const layer: Layer.Layer<
             sideChatHandoff === undefined || compact || goalCommand
               ? ""
               : sideChatHandoff.summaryText;
-          const context = [delivery.context, sideChatContext, restartNote]
-            .filter((part) => part !== "")
+          const sidekickContext = compact || goalCommand ? null : turnSidekickInstructions;
+          const context = [delivery.context, sideChatContext, restartNote, sidekickContext]
+            .filter((part) => part !== null && part !== "")
             .join("\n\n");
           const { restartContinuationOfRunId: _resumedRunId, ...promptedInput } = turnInput;
           yield* start({
@@ -1675,6 +1688,7 @@ export const layer: Layer.Layer<
         retryHandoff.length === 0 &&
         sideChatHandoff === undefined &&
         restartNote === "" &&
+        turnSidekickInstructions === null &&
         !noteContinuation
           ? session
           : makeDeliverySession(session, startWithHandoffs);

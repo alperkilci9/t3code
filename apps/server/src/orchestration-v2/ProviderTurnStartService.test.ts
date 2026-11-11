@@ -8,6 +8,7 @@ import {
   ContextTransferId,
   GitCommandError,
   MessageId,
+  type ModelSelection,
   NodeId,
   ProviderSessionId,
   ProviderThreadId,
@@ -269,6 +270,8 @@ it.each([
 
 function makeLocalCommandHarness(input: {
   readonly text: string;
+  readonly sidekick?: ModelSelection["sidekick"];
+  readonly previousSidekick?: ModelSelection["sidekick"];
   readonly worktreePath?: string;
   readonly worktreesDir?: string;
   readonly workspaceRoot?: string;
@@ -322,7 +325,11 @@ function makeLocalCommandHarness(input: {
     threadId,
     ordinal: 2,
     providerInstanceId: newInstanceId,
-    modelSelection: { instanceId: newInstanceId, model: "gpt-5.4" },
+    modelSelection: {
+      instanceId: newInstanceId,
+      model: "gpt-5.4",
+      ...(input.sidekick === undefined ? {} : { sidekick: input.sidekick }),
+    },
     providerThreadId,
     userMessageId: messageId,
     rootNodeId,
@@ -375,15 +382,26 @@ function makeLocalCommandHarness(input: {
       lineage: { parentThreadId: null, relationshipToParent: null, rootThreadId: threadId },
     } as OrchestrationV2ThreadProjection["thread"],
     runs: [
-      ...(input.previousNativeSession
+      ...(input.previousNativeSession || input.previousSidekick !== undefined
         ? [
             {
               ...run,
               id: RunId.make("previous-native-run"),
               ordinal: 1,
               status: "completed" as const,
-              providerInstanceId: oldInstanceId,
-              providerThreadId: oldProviderThreadId,
+              startedAt: now,
+              completedAt: now,
+              providerInstanceId: input.previousNativeSession ? oldInstanceId : newInstanceId,
+              providerThreadId: input.previousNativeSession
+                ? oldProviderThreadId
+                : providerThreadId,
+              modelSelection: {
+                instanceId: input.previousNativeSession ? oldInstanceId : newInstanceId,
+                model: "gemini-4-carbon",
+                ...(input.previousSidekick === undefined
+                  ? {}
+                  : { sidekick: input.previousSidekick }),
+              },
             },
           ]
         : []),
@@ -592,6 +610,14 @@ function makeLocalCommandHarness(input: {
                     ? "completed"
                     : input.sideChat.contextRun,
                 completedAt: now,
+                ...(input.previousSidekick === undefined
+                  ? {}
+                  : {
+                      modelSelection: {
+                        ...run.modelSelection,
+                        sidekick: input.previousSidekick,
+                      },
+                    }),
               },
               run,
             ],
@@ -681,6 +707,14 @@ function makeLocalCommandHarness(input: {
           activeAttemptId: previousAttemptId,
           providerThreadId: previousProviderThreadId,
           completedAt: now,
+          ...(input.previousSidekick === undefined
+            ? {}
+            : {
+                modelSelection: {
+                  ...run.modelSelection,
+                  sidekick: input.previousSidekick,
+                },
+              }),
         },
         run,
       ],
@@ -1295,6 +1329,63 @@ effectIt.effect.each([
           delivery: { nativeThreadId: "side-chat-native", status: "inline" },
         },
       ]);
+    }),
+);
+
+effectIt.effect("adds the selected sidekick target to the provider turn", () =>
+  Effect.gen(function* () {
+    const harness = makeLocalCommandHarness({
+      text: "Implement the change",
+      sideChat: { contextRun: "current" },
+      sidekick: {
+        enabled: true,
+        selection: {
+          instanceId: ProviderInstanceId.make("claudeAgent"),
+          model: "claude-haiku-5-5",
+          options: [{ id: "effort", value: "low" }],
+        },
+      },
+    });
+
+    yield* harness.start;
+
+    const prompt = harness.startTurn.mock.calls[0]?.[0].message.text ?? "";
+    expect(prompt).toContain("SIDE_CHAT_CONTEXT");
+    expect(prompt).toContain("<t3_sidekick_mode>");
+    expect(prompt).toContain('"providerInstanceId":"claudeAgent"');
+    expect(prompt).toContain('"model":"claude-haiku-5-5"');
+    expect(prompt).toContain('"id":"effort","value":"low"');
+    expect(prompt.endsWith("User message:\nImplement the change")).toBe(true);
+  }),
+);
+
+effectIt.effect(
+  "notifies the lead when a previously enabled cross-family sidekick is turned off",
+  () =>
+    Effect.gen(function* () {
+      const grokSidekick: NonNullable<ModelSelection["sidekick"]> = {
+        enabled: true,
+        selection: {
+          instanceId: ProviderInstanceId.make("cursor"),
+          model: "grok-4.7",
+          options: [
+            { id: "reasoning_effort", value: "high" },
+            { id: "fastMode", value: false },
+          ],
+        },
+      };
+      const harness = makeLocalCommandHarness({
+        text: "Now handle this turn directly",
+        sideChat: { contextRun: "delivered" },
+        previousSidekick: grokSidekick,
+        sidekick: { ...grokSidekick, enabled: false },
+      });
+
+      yield* harness.start;
+
+      const prompt = harness.startTurn.mock.calls[0]?.[0].message.text ?? "";
+      expect(prompt).toContain("Sidekick mode is now OFF for this turn");
+      expect(prompt.endsWith("User message:\nNow handle this turn directly")).toBe(true);
     }),
 );
 

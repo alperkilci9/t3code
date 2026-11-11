@@ -637,16 +637,35 @@ function PermissionsMenu(props: {
   );
 }
 
+/** Speed-only footer for pickers that inherit thread permissions, such as Sidekick. */
+export function ComposerSpeedFooter(props: { traits: TraitsSelectionInput | null }) {
+  if (!props.traits) return null;
+  const visibility = getTraitsSectionVisibility(props.traits);
+  const { speedSelect, fastToggle } = splitSpeed(
+    props.traits.provider,
+    visibility.selectDescriptors,
+    visibility.booleanDescriptors,
+  );
+  if (visibility.modelIsUnavailable || (!speedSelect && !fastToggle)) return null;
+  return (
+    <div className="flex flex-wrap items-center gap-2 border-t border-border/70 bg-muted/40 px-3 py-2">
+      <SpeedControl traits={props.traits} />
+    </div>
+  );
+}
+
 /** The model picker's footer: speed stays one click away, permissions sit one menu deeper. */
 export function ComposerPickerFooter(props: {
   traits: TraitsSelectionInput | null;
   runtimeMode: RuntimeMode;
   runtimeModeOptions: ReadonlyArray<RuntimeModeOption>;
   onRuntimeModeChange: (mode: RuntimeMode) => void;
+  sidekickSlot?: ReactNode | undefined;
 }) {
   return (
     <div className="flex flex-wrap items-center gap-2 border-t border-border/70 bg-muted/40 px-3 py-2">
       {props.traits ? <SpeedControl traits={props.traits} /> : null}
+      {props.sidekickSlot}
       <PermissionsMenu
         runtimeMode={props.runtimeMode}
         options={props.runtimeModeOptions}
